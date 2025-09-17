@@ -1,7 +1,7 @@
 # Deploying OpnForm with a Hybrid Model (Fly.io + NuxtHub)
 
 This guide provides step-by-step instructions for deploying the OpnForm application using a hybrid model:
-- **Backend API:** Deployed on [Fly.io](https://fly.io/) using a pre-built Docker image.
+- **Backend API:** Deployed on [Fly.io](https://fly.io/) by building from the source Dockerfile.
 - **Frontend UI:** Deployed on [NuxtHub](https://hub.nuxt.com/) for optimized Nuxt application hosting.
 
 ## Prerequisites
@@ -30,7 +30,7 @@ fly redis create --name opnform-redis --region <your-region>
 
 ### Step 2: Configure and Deploy the API
 
-The `api/fly.toml` file is pre-configured to deploy the backend using a pre-built Docker image (`jhumanj/opnform-api:1.9.3`).
+The `api/fly.toml` file is pre-configured to deploy the backend by building from the `docker/Dockerfile.api` file in this repository.
 
 **Important:** Before deploying, you must update the `APP_URL` in `api/fly.toml` to your final NuxtHub frontend URL.
 
