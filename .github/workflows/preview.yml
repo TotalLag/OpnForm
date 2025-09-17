@@ -51,12 +51,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'client/package-lock.json'
 
-      - name: Deploy Frontend to NuxtHub
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ./client
+
+      - name: Ensure NuxtHub module is installed
+        run: npx nuxthub@latest ensure
+        working-directory: ./client
+
+      - name: Build & Deploy to NuxtHub
         id: nuxthub
         uses: nuxt-hub/action@v2
         with:
