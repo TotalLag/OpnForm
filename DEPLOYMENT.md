@@ -68,6 +68,8 @@ After deployment, note the public URL of your API (e.g., `https://opnform-api.fl
 
 In your NuxtHub dashboard, create a new project and connect it to your GitHub repository containing the OpnForm code.
 
+**Important:** In the project settings, set the **Root Directory** to `client`. This tells NuxtHub to deploy only the Nuxt application located in the `client/` subdirectory.
+
 ### Step 2: Configure Environment Variables
 
 NuxtHub will automatically detect the Nuxt application in the `client/` directory. The most important step is to tell the frontend where to find the backend API.
