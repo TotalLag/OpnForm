@@ -1,82 +1,57 @@
-# Deploying OpnForm with a Hybrid Model (Fly.io + NuxtHub)
+# Automated Deployment Guide (Fly.io + NuxtHub)
 
-This guide provides step-by-step instructions for deploying the OpnForm application using a hybrid model:
-- **Backend API:** Deployed on [Fly.io](https://fly.io/) by building from the source Dockerfile.
-- **Frontend UI:** Deployed on [NuxtHub](https://hub.nuxt.com/) for optimized Nuxt application hosting.
+This project is configured with automated CI/CD workflows using GitHub Actions to deploy the backend API to [Fly.io](https://fly.io/) and the frontend UI to [NuxtHub](https://hub.nuxt.com/).
 
-## Prerequisites
+There are two main deployment environments: **Production** and **Preview**.
 
-- A [Fly.io](https://fly.io/) account.
-- A [NuxtHub](https://hub.nuxt.com/) account, connected to your GitHub account.
-- The `flyctl` command-line tool installed and authenticated.
-- A clone of the OpnForm repository pushed to your own GitHub repository.
-- An S3-compatible object storage bucket and credentials.
+---
 
-## 1. Backend Deployment (Fly.io)
+## Production Environment
 
-### Step 1: Provision the Database and Cache
+The production environment is your live, public-facing application.
 
-First, provision a PostgreSQL database and a Redis cache on Fly.io.
+### Workflow
 
-**PostgreSQL:**
-```bash
-fly postgres create --name opnform-db --region <your-region>
-```
+- **Trigger:** The production deployment is automatically triggered on every push or merge to the `main` branch.
+- **Backend (Fly.io):** The `.github/workflows/production.yml` workflow deploys the API from the `api/` directory to your production Fly.io application.
+- **Frontend (NuxtHub):** The production frontend deployment is handled by NuxtHub's native Git integration. When you link your `main` branch to your NuxtHub project, it will automatically deploy any new commits.
 
-**Redis:**
-```bash
-fly redis create --name opnform-redis --region <your-region>
-```
+---
 
-### Step 2: Configure and Deploy the API
+## Preview Environments
 
-The `api/fly.toml` file is pre-configured to deploy the backend by building from the `docker/Dockerfile.api` file in this repository.
+Preview environments are temporary, isolated instances of the application created for every pull request. This allows you to test changes in a live environment before merging them into `main`.
 
-**Important:** Before deploying, you must update the `APP_URL` in `api/fly.toml` to your final NuxtHub frontend URL.
+### Workflow
 
-You will also need to set the following secrets to connect to your database, Redis, and S3 bucket.
+- **Trigger:** The preview workflow is automatically triggered whenever a pull request is opened, updated, or closed.
+- **Backend (Fly.io):** A temporary backend app is created on Fly.io, named `opnform-api-pr-<PR_NUMBER>`.
+- **Frontend (NuxtHub):** A corresponding frontend preview is deployed to NuxtHub. The workflow ensures that this frontend is configured to communicate with the temporary backend API.
+- **PR Comment:** Once the preview environment is ready, a comment is automatically posted to the pull request with a link to the live frontend preview.
+- **Automatic Cleanup:** When the pull request is closed (merged or not), the workflow automatically destroys the temporary backend app on Fly.io to save costs.
 
-**Required Secrets:**
-- `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`: Your PostgreSQL credentials.
-- `DB_HOST`: The internal hostname of your Fly.io PostgreSQL database (e.g., `opnform-db.internal`).
-- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_BUCKET`: Your S3 bucket credentials and information.
-- `AWS_ENDPOINT`: The endpoint URL for your S3-compatible service (if not using AWS S3).
+---
 
-Set these secrets using the `flyctl` command:
-```bash
-fly secrets set -a opnform-api \
-  DB_DATABASE=<your-db-name> \
-  DB_USERNAME=<your-db-user> \
-  DB_PASSWORD=<your-db-password> \
-  DB_HOST=opnform-db.internal \
-  AWS_ACCESS_KEY_ID=<your-s3-key-id> \
-  AWS_SECRET_ACCESS_KEY=<your-s3-secret> \
-  AWS_DEFAULT_REGION=<your-s3-region> \
-  AWS_BUCKET=<your-s3-bucket-name> \
-  AWS_ENDPOINT=<your-s3-endpoint> # (Optional)
-```
+## Initial Setup
 
-**Deploy the API:**
-```bash
-fly deploy -a opnform-api --config api/fly.toml
-```
-After deployment, note the public URL of your API (e.g., `https://opnform-api.fly.dev`).
+To enable these automated workflows, you need to perform the following one-time setup steps.
 
-## 2. Frontend Deployment (NuxtHub)
+### 1. Create Production Apps
 
-### Step 1: Connect Your Repository
+- **Fly.io:** Create your production backend app. You can name it whatever you like (e.g., `opnform-api-prod`). Note its final URL.
+- **NuxtHub:** Create your production frontend project and link it to the `main` branch of your GitHub repository.
+  - In the NuxtHub project settings, set the **Root Directory** to `client`.
+  - In the NuxtHub project's environment variable settings, add `NUXT_PUBLIC_API_URL` and set its value to the public URL of your production Fly.io app.
 
-In your NuxtHub dashboard, create a new project and connect it to your GitHub repository containing the OpnForm code.
+### 2. Create a Preview Project on NuxtHub
 
-**Important:** In the project settings, set the **Root Directory** to `client`. This tells NuxtHub to deploy only the Nuxt application located in the `client/` subdirectory.
+- **NuxtHub:** Create a second project on NuxtHub specifically for previews (e.g., `opnform-previews`). You do *not* need to link this to a specific branch, as our GitHub Action will deploy to it manually.
 
-### Step 2: Configure Environment Variables
+### 3. Add GitHub Secrets
 
-NuxtHub will automatically detect the Nuxt application in the `client/` directory. The most important step is to tell the frontend where to find the backend API.
+In your GitHub repository, go to `Settings > Secrets and variables > Actions` and add the following repository secrets. The workflows use these to authenticate with Fly.io and NuxtHub.
 
-In your NuxtHub project settings, add the following environment variable:
-- `NUXT_PUBLIC_API_URL`: The public URL of your `opnform-api` Fly.io application.
-
-### Step 3: Deploy
-
-NuxtHub will automatically build and deploy your application from the `main` branch. Once the deployment is complete, you can access your OpnForm application at the URL provided by NuxtHub.
+- `FLY_API_TOKEN`: Your API token for Fly.io. You can generate this by running `fly tokens create org <YOUR_ORG_NAME>`.
+- `NUXT_HUB_USER_TOKEN`: Your personal user token from the NuxtHub Admin dashboard (`User settings > Tokens`).
+- `NUXT_HUB_PROJECT_KEY_PREVIEW`: The project key for your **preview** NuxtHub project.
+- **Backend Secrets:** You also need to set any required backend secrets (like database credentials) directly in your Fly.io production app's settings. For preview apps, you can add them to the `preview.yml` workflow file if needed.

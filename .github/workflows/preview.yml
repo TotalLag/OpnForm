@@ -1,0 +1,87 @@
+name: Deploy Preview
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+env:
+  FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+  NUXT_HUB_USER_TOKEN: ${{ secrets.NUXT_HUB_USER_TOKEN }}
+  NUXT_HUB_PROJECT_KEY_PREVIEW: ${{ secrets.NUXT_HUB_PROJECT_KEY_PREVIEW }}
+  FLY_ORG: "personal" # Change this to your Fly.io organization
+  FLY_REGION: "dfw" # Change this to your preferred region
+  API_APP_NAME_PREFIX: "opnform-api-pr-"
+
+jobs:
+  # This job handles deploying or destroying the backend API on Fly.io
+  deploy-or-destroy-backend:
+    name: Deploy/Destroy Backend Preview
+    runs-on: ubuntu-latest
+    outputs:
+      # The action outputs the URL of the deployed preview app
+      url: ${{ steps.fly.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy or Destroy Preview Backend
+        id: fly
+        uses: superfly/fly-pr-review-apps@main
+        with:
+          name: ${{ env.API_APP_NAME_PREFIX }}${{ github.event.number }}
+          path: ./api
+          config: fly.toml
+          dockerfile: ../docker/Dockerfile.api
+          secrets: |
+            # Add any backend secrets needed for previews here
+            # e.g., DB_CONNECTION=pgsql
+            # You might want to connect to a shared staging DB for previews
+            # Or spin up ephemeral databases, which is a more advanced topic
+
+  # This job deploys the frontend to NuxtHub, but only if the PR is not closed
+  deploy-frontend:
+    name: Deploy Frontend Preview
+    runs-on: ubuntu-latest
+    needs: deploy-or-destroy-backend
+    if: github.event.action != 'closed'
+    outputs:
+      # The NuxtHub action outputs the URL of the deployed frontend preview
+      url: ${{ steps.nuxthub.outputs.deployment-url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Deploy Frontend to NuxtHub
+        id: nuxthub
+        uses: nuxt-hub/action@v2
+        with:
+          directory: ./client
+          project-key: ${{ env.NUXT_HUB_PROJECT_KEY_PREVIEW }}
+        env:
+          # This is the crucial step: we pass the dynamic backend URL
+          NUXT_PUBLIC_API_URL: ${{ needs.deploy-or-destroy-backend.outputs.url }}
+
+  # This job posts a comment to the PR with the preview URLs
+  post-comment:
+    name: Post Preview URLs
+    runs-on: ubuntu-latest
+    needs: [deploy-or-destroy-backend, deploy-frontend]
+    if: github.event.action != 'closed'
+    steps:
+      - name: Post URLs to PR Comment
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          message: |
+            🚀 **Preview Environment Deployed!**
+
+            - **Frontend Preview:** ${{ needs.deploy-frontend.outputs.url }}
+            - **Backend API:** ${{ needs.deploy-or-destroy-backend.outputs.url }}
+
+            *Note: The backend API is headless. You should interact with it through the frontend preview.*
+          comment_tag: preview-urls # This allows the action to update its own comment
+          mode: upsert

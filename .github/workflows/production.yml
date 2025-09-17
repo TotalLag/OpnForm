@@ -1,0 +1,26 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+  FLY_ORG: "personal" # Change this to your Fly.io organization
+  FLY_REGION: "dfw" # Change this to your preferred region
+  API_APP_NAME: "opnform-api-prod" # Change this to your production API app name
+
+jobs:
+  deploy-api:
+    name: Deploy Production API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy API to Fly.io
+        run: flyctl deploy --app ${{ env.API_APP_NAME }} --config ./api/fly.toml --dockerfile ./docker/Dockerfile.api --remote-only --no-cache
