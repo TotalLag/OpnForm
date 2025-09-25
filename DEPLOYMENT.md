@@ -1,57 +1,69 @@
-# Automated Deployment Guide (Fly.io + NuxtHub)
+# Automated Serverless Deployment Guide (Bref + NuxtHub)
 
-This project is configured with automated CI/CD workflows using GitHub Actions to deploy the backend API to [Fly.io](https://fly.io/) and the frontend UI to [NuxtHub](https://hub.nuxt.com/).
+This project is configured for a fully serverless architecture using [Bref](https://bref.sh/) on [AWS Lambda](https://aws.amazon.com/lambda/) for the backend and [NuxtHub](https://hub.nuxt.com/) for the frontend.
 
-There are two main deployment environments: **Production** and **Preview**.
+The deployment process is automated with GitHub Actions, providing separate workflows for **Production** and **Preview** environments.
 
 ---
 
-## Production Environment
+## Architecture Overview
+
+-   **Backend:** The Laravel API in the `api/` directory is deployed as a serverless application using Bref. This includes the web server, queue workers, and scheduled tasks, all running on AWS Lambda.
+-   **Frontend:** The Nuxt.js UI in the `client/` directory is deployed to NuxtHub's global edge network.
+-   **CI/CD:** GitHub Actions orchestrate the entire deployment process, triggered by pushes and pull requests to your repository.
+
+---
+
+## Deployment Workflows
+
+### Production Environment
 
 The production environment is your live, public-facing application.
 
-### Workflow
+-   **Trigger:** Automatically deploys on every push or merge to the `main` branch.
+-   **Action:** The `.github/workflows/production.yml` workflow uses the Serverless Framework to deploy the backend to a permanent `prod` stage on AWS.
+-   **Frontend:** The production frontend is deployed via NuxtHub's native Git integration, which monitors the `main` branch.
 
-- **Trigger:** The production deployment is automatically triggered on every push or merge to the `main` branch.
-- **Backend (Fly.io):** The `.github/workflows/production.yml` workflow deploys the API from the `api/` directory to your production Fly.io application.
-- **Frontend (NuxtHub):** The production frontend deployment is handled by NuxtHub's native Git integration. When you link your `main` branch to your NuxtHub project, it will automatically deploy any new commits.
+### Preview Environments
 
----
+A temporary, isolated preview environment is created for every pull request.
 
-## Preview Environments
-
-Preview environments are temporary, isolated instances of the application created for every pull request. This allows you to test changes in a live environment before merging them into `main`.
-
-### Workflow
-
-- **Trigger:** The preview workflow is automatically triggered whenever a pull request is opened, updated, or closed.
-- **Backend (Fly.io):** A temporary backend app is created on Fly.io, named `opnform-api-pr-<PR_NUMBER>`.
-- **Frontend (NuxtHub):** A corresponding frontend preview is deployed to NuxtHub. The workflow ensures that this frontend is configured to communicate with the temporary backend API.
-- **PR Comment:** Once the preview environment is ready, a comment is automatically posted to the pull request with a link to the live frontend preview.
-- **Automatic Cleanup:** When the pull request is closed (merged or not), the workflow automatically destroys the temporary backend app on Fly.io to save costs.
+-   **Trigger:** Automatically runs when a pull request is opened, updated, or closed.
+-   **Backend Action:** The `.github/workflows/preview.yml` workflow deploys the backend to a temporary, dynamic stage on AWS (e.g., `pr-123`).
+-   **Frontend Action:** The workflow then deploys a corresponding frontend preview to NuxtHub, ensuring it's configured to communicate with the temporary backend.
+-   **PR Comment:** A comment is automatically posted to the pull request with a link to the live frontend preview.
+-   **Cleanup:** When the pull request is closed, the workflow automatically destroys all the temporary AWS resources to save costs.
 
 ---
 
-## Initial Setup
+## Initial Setup Guide
 
-To enable these automated workflows, you need to perform the following one-time setup steps.
+To enable these automated workflows, you must perform the following one-time setup.
 
-### 1. Create Production Apps
+### 1. AWS Account and IAM Roles
 
-- **Fly.io:** Create your production backend app. You can name it whatever you like (e.g., `opnform-api-prod`). Note its final URL.
-- **NuxtHub:** Create your production frontend project and link it to the `main` branch of your GitHub repository.
-  - In the NuxtHub project settings, set the **Root Directory** to `client`.
-  - In the NuxtHub project's environment variable settings, add `NUXT_PUBLIC_API_URL` and set its value to the public URL of your production Fly.io app.
+1.  **Create an AWS Account:** If you don't have one, [sign up for AWS](https://aws.amazon.com/).
+2.  **Configure IAM Roles for GitHub Actions:** For maximum security, it's best to use AWS IAM roles to grant GitHub Actions permission to deploy resources. Follow the official [AWS guide to configure OpenID Connect](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html). You will need to create two roles:
+    *   A role for production deployments (e.g., `github-actions-prod-deployer`).
+    *   A role for preview deployments (e.g., `github-actions-preview-deployer`), which should have more limited permissions if desired.
 
-### 2. Create a Preview Project on NuxtHub
+### 2. NuxtHub Projects
 
-- **NuxtHub:** Create a second project on NuxtHub specifically for previews (e.g., `opnform-previews`). You do *not* need to link this to a specific branch, as our GitHub Action will deploy to it manually.
+1.  **Production Project:** Create a project on NuxtHub for your production frontend. Link it to the `main` branch of your GitHub repository. In the project settings, set the **Root Directory** to `client`.
+2.  **Preview Project:** Create a second project on NuxtHub to be used for all previews (e.g., `opnform-previews`). You do *not* need to link this to a specific branch.
 
-### 3. Add GitHub Secrets
+### 3. GitHub Secrets
 
-In your GitHub repository, go to `Settings > Secrets and variables > Actions` and add the following repository secrets. The workflows use these to authenticate with Fly.io and NuxtHub.
+In your GitHub repository, go to `Settings > Secrets and variables > Actions` and add the following secrets.
 
-- `FLY_API_TOKEN`: Your API token for Fly.io. You can generate this by running `fly tokens create org <YOUR_ORG_NAME>`.
-- `NUXT_HUB_USER_TOKEN`: Your personal user token from the NuxtHub Admin dashboard (`User settings > Tokens`).
-- `NUXT_HUB_PROJECT_KEY_PREVIEW`: The project key for your **preview** NuxtHub project.
-- **Backend Secrets:** You also need to set any required backend secrets (like database credentials) directly in your Fly.io production app's settings. For preview apps, you can add them to the `preview.yml` workflow file if needed.
+-   `AWS_IAM_ROLE_PROD`: The full ARN of the IAM role you created for production deployments.
+-   `AWS_IAM_ROLE_PREVIEW`: The full ARN of the IAM role for preview deployments.
+-   `NUXT_HUB_USER_TOKEN`: Your personal user token from the NuxtHub Admin dashboard (`User settings > Tokens`).
+-   `NUXT_HUB_PROJECT_KEY_PREVIEW`: The project key for your **preview** NuxtHub project.
+
+*(Note: If you choose not to use IAM Roles, you can instead create an IAM User and set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` as secrets.)*
+
+### 4. Production Environment Variables
+
+1.  **Backend (AWS):** For your production backend, store sensitive values like your database password and `APP_KEY` in the [AWS Systems Manager (SSM) Parameter Store](https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html). The `serverless.yml` can be configured to read these securely.
+2.  **Frontend (NuxtHub):** In your production NuxtHub project's settings, you must set the `NUXT_PUBLIC_API_URL` environment variable to the public URL of your production backend API. You will get this URL after the first successful production deployment.
