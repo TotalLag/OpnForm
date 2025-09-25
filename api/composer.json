@@ -17,6 +17,7 @@
         "aws/aws-sdk-php": "*",
         "bref/bref": "^2.4",
         "bref/laravel-bridge": "^2.7",
+        "bref/secrets-loader": "^1.1",
         "doctrine/dbal": "*",
         "fakerphp/faker": "^1.23",
         "giggsey/libphonenumber-for-php": "*",
