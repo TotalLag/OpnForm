@@ -1,0 +1,91 @@
+# serverless.yml
+
+# The service name is used to identify this application.
+# It will be the prefix for all created AWS resources.
+service: opnform-api
+
+# The provider section defines the cloud provider and runtime settings.
+provider:
+    name: aws
+    # The region to deploy to.
+    region: us-east-1
+    # The stage is used to differentiate environments (e.g., prod, pr-123).
+    # It defaults to 'dev' but can be overridden by the --stage option.
+    stage: ${opt:stage, 'dev'}
+    # Bref provides ready-to-use PHP runtimes on AWS Lambda.
+    # We use the FPM runtime for web applications.
+    runtime: php-8.2-fpm
+
+# The package section controls how the application is packaged for deployment.
+# We exclude common development files and vendor directories to keep the package small.
+package:
+    patterns:
+        - '!node_modules/**'
+        - '!public/storage'
+        - '!resources/assets/**'
+        - '!storage/**'
+        - '!tests/**'
+
+# The functions section defines the serverless functions of the application.
+functions:
+    # This function runs the main web application (your Laravel app).
+    web:
+        handler: public/index.php
+        # Bref provides a pre-configured Lambda layer for Laravel.
+        layers:
+            - ${bref:layer.php-82-fpm}
+        # This section configures API Gateway to forward all HTTP requests to this function.
+        events:
+            - httpApi: '*'
+        # We set a timeout for the function.
+        timeout: 28 # in seconds (API Gateway has a 29-second timeout)
+
+    # This function processes jobs from the SQS queue.
+    queue:
+        handler: Bref\\Laravel\\Queue\\QueueHandler
+        layers:
+            - ${bref:layer.php-82} # Note: no -fpm for console apps
+        # This function is triggered by messages on the SQS queue defined below.
+        events:
+            - sqs:
+                  arn: !GetAtt JobsQueue.Arn
+                  batchSize: 1
+        # We give the queue worker more time to process jobs.
+        timeout: 600 # 10 minutes
+
+    # This function runs the Laravel scheduler (e.g., for cron jobs).
+    scheduler:
+        handler: Bref\\Laravel\\Queue\\ScheduledHandler
+        layers:
+            - ${bref:layer.php-82}
+        # This function is triggered on a schedule.
+        # This example runs every 5 minutes. You can change the cron expression.
+        events:
+            - schedule:
+                  rate: rate(5 minutes)
+        timeout: 600 # 10 minutes
+
+# The plugins section lists Serverless Framework plugins.
+# The Bref plugin is required.
+plugins:
+    - ./vendor/bref/bref
+
+# The resources section allows defining custom AWS resources.
+resources:
+    Resources:
+        # This defines the SQS queue used for background jobs.
+        JobsQueue:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: ${self:service}-${self:provider.stage}-jobs
+                # When a message fails processing, it will be sent to the Dead Letter Queue.
+                RedrivePolicy:
+                    deadLetterTargetArn: !GetAtt JobsDeadLetterQueue.Arn
+                    # The message will be retried 3 times before being sent to the DLQ.
+                    maxReceiveCount: 3
+
+        # This is the Dead Letter Queue for failed jobs.
+        JobsDeadLetterQueue:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: ${self:service}-${self:provider.stage}-jobs-dlq

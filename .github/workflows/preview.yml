@@ -1,0 +1,126 @@
+# .github/workflows/preview.yml
+
+name: Deploy Preview (Bref)
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+
+jobs:
+  # This job deploys the preview environment when a PR is opened or updated.
+  deploy-preview:
+    name: Deploy Preview Environment
+    # Only run this job if the PR was not closed.
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write # Needed to post comments on the PR
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif
+          coverage: none
+
+      - name: Install Composer Dependencies
+        run: composer install --prefer-dist --no-progress --no-dev
+        working-directory: ./api
+
+      - name: Configure AWS credentials for Preview
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # It's recommended to use a separate IAM role for preview environments
+          # with more limited permissions than production.
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE_PREVIEW }}
+          aws-region: us-east-1 # Change to your desired region
+
+      - name: Deploy to AWS with Serverless Framework
+        id: serverless-deploy
+        run: |
+          cd api
+          npx serverless deploy --stage pr-${{ github.event.number }}
+          # Capture the API Gateway URL endpoint from the output
+          API_URL=$(npx serverless info --stage pr-${{ github.event.number }} | grep HttpApiUrl)
+          API_URL=${API_URL#*HttpApiUrl: }
+          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Deploy Frontend to NuxtHub
+        id: nuxthub
+        uses: nuxt-hub/action@v2
+        with:
+          directory: ./client
+          project-key: ${{ secrets.NUXT_HUB_PROJECT_KEY_PREVIEW }}
+        env:
+          NUXT_HUB_USER_TOKEN: ${{ secrets.NUXT_HUB_USER_TOKEN }}
+          NUXT_PUBLIC_API_URL: ${{ steps.serverless-deploy.outputs.api_url }}
+
+      - name: Post Preview URLs to PR
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          message: |
+            🚀 **Bref/NuxtHub Preview Deployed!**
+
+            - **Frontend Preview:** ${{ steps.nuxthub.outputs.deployment-url }}
+            - **Backend API:** ${{ steps.serverless-deploy.outputs.api_url }}
+          comment_tag: preview-urls
+          mode: upsert
+
+  # This job removes the preview environment when a PR is closed.
+  remove-preview:
+    name: Remove Preview Environment
+    # Only run this job if the PR was closed.
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      - name: Install Composer Dependencies
+        run: composer install --prefer-dist --no-progress --no-dev
+        working-directory: ./api
+
+      - name: Configure AWS credentials for Preview
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE_PREVIEW }}
+          aws-region: us-east-1 # Change to your desired region
+
+      - name: Remove Preview from AWS
+        run: npx serverless remove --stage pr-${{ github.event.number }}
+        working-directory: ./api
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
