@@ -18,7 +18,7 @@ provider:
     APP_ENV: production
     APP_NAME: 'OpnForm'
     TRUSTED_PROXIES: '*'
-    CACHE_DRIVER: 'redis'
+    CACHE_DRIVER: 'database'
     DB_CONNECTION: 'pgsql'
     FILESYSTEM_DRIVER: 's3'
     AWS_USE_PATH_STYLE_ENDPOINT: 'true'
@@ -30,9 +30,9 @@ provider:
     PHP_MEMORY_LIMIT: '1G'
     PHP_POST_MAX_SIZE: '64M'
     PHP_UPLOAD_MAX_FILESIZE: '64M'
-    QUEUE_CONNECTION: 'redis'
+    QUEUE_CONNECTION: 'sqs'
     SELF_HOSTED: 'true'
-    SESSION_DRIVER: 'redis'
+    SESSION_DRIVER: 'database'
     SESSION_LIFETIME: '120'
     SHOW_OFFICIAL_TEMPLATES: 'true'
 

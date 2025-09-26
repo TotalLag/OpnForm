@@ -140,5 +140,15 @@ export default defineNuxtConfig({
 
   sitemap,
   runtimeConfig,
-  compatibilityDate: '2024-10-30'
+  compatibilityDate: '2024-10-30',
+  nitro: {
+    routeRules: {
+        // Keep internal Nitro endpoints served by Nuxt (don’t proxy to backend)
+        '/api/_nuxt_icon/**': {},
+        '/api/_ipx/**': {},
+        // All other /api requests get proxied to the backend API
+        '/api/**': { proxy: process.env.NUXT_PRIVATE_API_BASE + '/**' }
+    }
+ }
+
 })
