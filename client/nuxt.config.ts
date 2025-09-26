@@ -168,16 +168,33 @@ export default defineNuxtConfig({
   runtimeConfig,
   compatibilityDate: '2024-10-30',
   nitro: {
-    // Ensure Cloudflare Pages Functions (SSR) so the local API endpoint exists
     preset: 'cloudflare-pages',
-    routeRules: {
-        // Keep internal Nitro endpoints served by Nuxt (don’t proxy to backend)
-        '/__icon/**': {},
-        '/api/_nuxt_icon/**': {}, // legacy path during transition
-        '/api/_ipx/**': {},
-        // All other /api requests get proxied to the backend API
-        '/api/**': { proxy: process.env.NUXT_PRIVATE_API_BASE + '/**' }
-    }
- }
 
+    routeRules: {
+        // Internal endpoints (don't proxy)
+        '/__icon/**': {},
+        '/api/_nuxt_icon/**': {},
+        '/api/_ipx/**': {},
+
+        // API routes — proxied to backend on a different domain
+        '/api/**': {
+        proxy: `${process.env.NUXT_PRIVATE_API_BASE}/**`,
+        cors: true, // allow CORS if frontend/backend are different origins
+        maxBodySize: '64mb'
+        },
+
+        '/open/**': {
+        proxy: `${process.env.NUXT_PRIVATE_API_BASE}/open/**`,
+        cors: true
+        },
+
+        '/forms/assets/**': {
+        proxy: `${process.env.NUXT_PRIVATE_API_BASE}/forms/assets/**`,
+        cors: true
+        },
+
+        // Optional: block dotfiles
+        '/**/.**': { statusCode: 404 }
+    }
+    }
 })
