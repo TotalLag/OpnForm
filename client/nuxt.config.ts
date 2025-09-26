@@ -1,6 +1,6 @@
-// https://nuxt.com/docs/api/configuration/nuxt-config
-import runtimeConfig from "./runtimeConfig"
-import sitemap from "./sitemap"
+ // https://nuxt.com/docs/api/configuration/nuxt-config
+ import runtimeConfig from "./runtimeConfig"
+ import sitemap from "./sitemap"
 
 export default defineNuxtConfig({
   loglevel: process.env.NUXT_LOG_LEVEL || 'info',
@@ -126,6 +126,13 @@ export default defineNuxtConfig({
   },
 
   icon: {
+      // Serve icon collections on-demand from CDN (no local @iconify-json/* install needed)
+      serverBundle: {
+        remote: 'jsdelivr' // or 'unpkg'
+      },
+      // Keep provider 'server' (default) so the local API endpoint is used
+      // Explicitly match our routeRules exception to avoid proxying
+      localApiEndpoint: '/api/_nuxt_icon',
       clientBundle: {
           scan: {
               globInclude: ['**/*.vue', '**/*.json'],
@@ -142,6 +149,8 @@ export default defineNuxtConfig({
   runtimeConfig,
   compatibilityDate: '2024-10-30',
   nitro: {
+    // Ensure Cloudflare Pages Functions (SSR) so the local API endpoint exists
+    preset: 'cloudflare-pages',
     routeRules: {
         // Keep internal Nitro endpoints served by Nuxt (don’t proxy to backend)
         '/api/_nuxt_icon/**': {},
