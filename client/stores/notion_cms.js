@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
-import opnformConfig from "~/opnform.config.js"
+import opnformConfig from '~/opnform.config.js'
 
 function notionApiFetch (entityId, type = 'table') {
   const apiUrl = opnformConfig.notion.worker
@@ -15,113 +14,132 @@ function fetchNotionPageContent (pageId) {
   return notionApiFetch(pageId, 'page')
 }
 
-export const useNotionCmsStore = defineStore('notion_cms', () => {
+export const useNotionCmsStore = defineStore('notion_cms', {
+  state: () => ({
+    databases: {},
+    pages: {},
+    pageContents: {},
+    slugToIdMap: {},
+    loading: false,
+  }),
 
-  // State
-  const databases = ref({})
-  const pages = ref({})
-  const pageContents = ref({})
-  const slugToIdMap = ref({})
+  actions: {
+    _formatId (id) {
+      return id.replaceAll('-', '')
+    },
 
-  const loading = ref(false)
+    setSlugToIdMap (slug, pageId) {
+      if (!slug) return
+      this.slugToIdMap[slug.toLowerCase()] = this._formatId(pageId)
+    },
 
-  // Actions
-  const loadDatabase = (databaseId) => {
-    return new Promise((resolve, reject) => {
-      if (databases.value[databaseId]) return resolve()
+    async loadDatabase (databaseId) {
+      if (this.databases[databaseId]) {
+        return
+      }
 
-      loading.value = true
-      return fetchNotionDatabasePages(databaseId).then((response) => {
-        databases.value[databaseId] = response.data.value.map(page => formatId(page.id))
-        response.data.value.forEach(page => {
-          pages.value[formatId(page.id)] = {
-            ...page,
-            id: formatId(page.id)
-          }
-          const slug = page.Slug ?? page.slug ?? null
-          if (slug) {
-            setSlugToIdMap(slug, page.id)
-          }
-        })
-        loading.value = false
-        resolve()
-      }).catch((error) => {
-        loading.value = false
+      this.loading = true
+      try {
+        const response = await fetchNotionDatabasePages(databaseId)
+        if (response.data.value && Array.isArray(response.data.value)) {
+          this.databases[databaseId] = response.data.value.map(page => this._formatId(page.id))
+          response.data.value.forEach(page => {
+            const formattedId = this._formatId(page.id)
+            this.pages[formattedId] = {
+              ...page,
+              id: formattedId,
+            }
+            const slug = page.Slug ?? page.slug ?? null
+            if (slug) {
+              this.setSlugToIdMap(slug, page.id)
+            }
+          })
+        } else {
+          console.warn('Received unexpected data structure for database:', databaseId, response.data.value)
+          this.databases[databaseId] = []
+        }
+      } catch (error) {
         console.error(error)
-        reject(error)
-      })
-    })
-  }
-  const loadPage = async (pageId) => {
-    return new Promise((resolve, reject) => {
-      if (pageContents.value[pageId]) return resolve('in already here')
-      loading.value = true
-      return fetchNotionPageContent(pageId).then((response) => {
-        pageContents.value[formatId(pageId)] = response.data.value
-        loading.value = false
-        return resolve('in finishg')
-      }).catch((error) => {
+        throw error
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async loadPage (pageId) {
+      const formattedPageId = this._formatId(pageId)
+      if (this.pageContents[formattedPageId]) {
+        return 'in already here'
+      }
+
+      this.loading = true
+      try {
+        const response = await fetchNotionPageContent(pageId)
+        this.pageContents[formattedPageId] = response.data.value
+        return 'in finishg'
+      } catch (error) {
         console.error(error)
-        loading.value = false
-        return reject(error)
-      })
-    })
-  }
+        throw error
+      } finally {
+        this.loading = false
+      }
+    },
 
-  const loadPageBySlug = (slug) => {
-    if (!slugToIdMap.value[slug.toLowerCase()]) return
-    loadPage(slugToIdMap.value[slug.toLowerCase()])
-  }
+    loadPageBySlug (slug) {
+      if (!this.slugToIdMap[slug.toLowerCase()]) return
+      return this.loadPage(this.slugToIdMap[slug.toLowerCase()])
+    },
 
-  const formatId = (id) => id.replaceAll('-', '')
+    getPage (pageId) {
+      if (!pageId) return null
+      const formattedId = this._formatId(pageId)
+      return {
+        ...this.pages[formattedId],
+        blocks: this.getPageBody(formattedId),
+      }
+    },
 
-  const getPage = (pageId) => {
-    return {
-      ...pages.value[pageId],
-      blocks: getPageBody(pageId)
-    }
-  }
+    getPageBody (pageId) {
+      if (!pageId) return null
+      const formattedId = this._formatId(pageId)
+      return this.pageContents[formattedId]
+    },
 
-  const getPageBody = (pageId) => {
-    return pageContents.value[pageId]
-  }
+    getPageBySlug (slug) {
+      if (!slug) return
+      const pageId = this.slugToIdMap[slug.toLowerCase()]
+      return this.getPage(pageId)
+    },
+  },
 
-  const setSlugToIdMap = (slug, pageId) => {
-    if (!slug) return
-    slugToIdMap.value[slug.toLowerCase()] = formatId(pageId)
-  }
+  getters: {
+    databasePages: (state) => (databaseId) => {
+      return state.databases[databaseId]?.map(id => state.pages[id]) || []
+    },
 
-  const getPageBySlug = (slug) => {
-    if (!slug) return
-    const pageId = slugToIdMap.value[slug.toLowerCase()]
-    return getPage(pageId)
-  }
+    pageContent: (state) => (pageId) => {
+      if (!pageId) return null
+      const formattedId = pageId.replaceAll('-', '')
+      return state.pageContents[formattedId]
+    },
 
-// Getters
-  const databasePages = (databaseId) => computed(() => databases.value[databaseId]?.map(id => pages.value[id]) || [])
-  const pageContent = (pageId) => computed(() => pageContents.value[pageId])
-  const pageBySlug = (slug) => computed(() => getPageBySlug(slug))
+    pageBySlug: (state) => {
+      return (slug) => {
+        if (!slug) return null
+        const pageId = state.slugToIdMap[slug.toLowerCase()]
+        if (!pageId) return null
 
-  return {
-    // state
-    loading,
-    databases,
-    pages,
-    pageContents,
-    slugToIdMap,
+        const formattedId = pageId.replaceAll('-', '')
+        const pageData = state.pages[formattedId]
+        const pageContent = state.pageContents[formattedId]
 
-    // actions
-    loadDatabase,
-    loadPage,
-    loadPageBySlug,
-    getPage,
-    getPageBody,
-    setSlugToIdMap,
-    getPageBySlug,
+        if (!pageData) return null
 
-    // getters
-    databasePages,
-    pageContent,
-    pageBySlug
-  }
+        return {
+          ...pageData,
+          blocks: pageContent,
+        }
+      }
+    },
+  },
 })
