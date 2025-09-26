@@ -28,7 +28,6 @@
           <!-- Left Column - Form Inputs -->
           <div class="flex-1 space-y-4 max-w-xs">
             <SelectInput
-              v-if="useFeatureFlag('custom_domains')"
               v-model="form.custom_domain"
               :clearable="true"
               :disabled="customDomainOptions.length <= 0"
