@@ -142,13 +142,15 @@ export default defineNuxtConfig({
               dir: './public/icons'
           },
       ],
+      provider: 'server',
       // Serve icon collections on-demand from CDN (no local @iconify-json/* install needed)
       serverBundle: {
         remote: 'jsdelivr' // or 'unpkg'
       },
-      // Keep provider 'server' (default) so the local API endpoint is used
-      // Explicitly match our routeRules exception to avoid proxying
-      localApiEndpoint: '/api/_nuxt_icon',
+      // Use a non-/api path to avoid backend proxy conflicts
+      localApiEndpoint: '/__icon',
+      // Be explicit: when collection or icon is missing locally, fall back to Iconify API
+      fallbackToApi: true,
       clientBundle: {
           includeCustomCollections: true,
           scan: {
@@ -170,7 +172,8 @@ export default defineNuxtConfig({
     preset: 'cloudflare-pages',
     routeRules: {
         // Keep internal Nitro endpoints served by Nuxt (don’t proxy to backend)
-        '/api/_nuxt_icon/**': {},
+        '/__icon/**': {},
+        '/api/_nuxt_icon/**': {}, // legacy path during transition
         '/api/_ipx/**': {},
         // All other /api requests get proxied to the backend API
         '/api/**': { proxy: process.env.NUXT_PRIVATE_API_BASE + '/**' }
