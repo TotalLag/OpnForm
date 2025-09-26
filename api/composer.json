@@ -16,6 +16,7 @@
         "ext-json": "*",
         "aws/aws-sdk-php": "*",
         "bref/bref": "^2.4",
+        "bref/extra-php-extensions": "^1.8",
         "bref/laravel-bridge": "^2.7",
         "bref/secrets-loader": "^1.1",
         "doctrine/dbal": "*",
