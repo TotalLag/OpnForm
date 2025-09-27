@@ -18,6 +18,7 @@ use App\Listeners\Forms\FormIntegrationsEventListener;
 use App\Listeners\Forms\NotifyFormSubmission;
 use App\Listeners\Forms\DeleteFormSubmissionFiles;
 use App\Listeners\Forms\FormSpamCheckListener;
+use App\Listeners\Forms\RevalidateFrontendOnFormSaved;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
@@ -38,6 +39,7 @@ class EventServiceProvider extends ServiceProvider
         ],
         FormSaved::class => [
             FormSpamCheckListener::class,
+            RevalidateFrontendOnFormSaved::class,
         ],
         FormSubmitted::class => [
             NotifyFormSubmission::class,
