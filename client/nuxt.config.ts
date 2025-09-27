@@ -157,12 +157,13 @@ export default defineNuxtConfig({
         '/__icon/**': {},
         '/api/_nuxt_icon/**': {},
         '/api/_ipx/**': {},
+        // Keep this internal so Nitro can fetch Laravel '/content/feature-flags'
+        '/api/feature-flags': {},
 
         // API routes — proxied to backend on a different domain
         '/api/**': {
         proxy: `${process.env.NUXT_PRIVATE_API_BASE}/**`,
         cors: true, // allow CORS if frontend/backend are different origins
-        maxBodySize: '64mb'
         },
 
         '/open/**': {
@@ -170,13 +171,13 @@ export default defineNuxtConfig({
         cors: true
         },
 
-        '/forms/assets/**': {
-        proxy: `${process.env.NUXT_PRIVATE_API_BASE}/forms/assets/**`,
-        cors: true
-        },
+        // '/forms/assets/**': {
+        // proxy: `${process.env.NUXT_PRIVATE_API_BASE}/forms/assets/**`,
+        // cors: true
+        // },
 
         // Optional: block dotfiles
-        '/**/.**': { statusCode: 404 }
+        '/**/.**': {}
     }
     }
 })

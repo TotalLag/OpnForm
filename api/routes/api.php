@@ -275,6 +275,9 @@ Route::group(['middleware' => 'auth.multi'], function () {
         });
     });
 });
+// Public asset proxy endpoint (frontend proxies /forms/assets/** here)
+Route::get('/forms/assets/{assetFileName}', [PublicFormController::class, 'showAsset'])
+    ->name('forms.assets.show');
 
 Route::group(['middleware' => 'guest:api'], function () {
     Route::post('login', [LoginController::class, 'login'])->name('login');
@@ -360,7 +363,7 @@ Route::post(
 
 Route::post(
     '/vapor/signed-storage-url',
-    [\App\Http\Controllers\Content\SignedStorageUrlController::class, 'store']
+    [\App\Http\Controllers\Content\StorjSignedStorageUrlController::class, 'store']
 )->name('vapor.signed-storage-url');
 Route::post(
     '/upload-file',
