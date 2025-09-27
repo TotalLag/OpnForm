@@ -239,6 +239,8 @@ return [
         App\Providers\RouteServiceProvider::class,
         App\Providers\VaporUiServiceProvider::class,
         App\Providers\PurifySetupProvider::class,
+        App\Providers\SqsBrefPatchServiceProvider::class,
+        App\Providers\StorjBrefPatchServiceProvider::class,
 
         /*
         * Package Service Providers...
