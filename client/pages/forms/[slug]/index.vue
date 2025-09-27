@@ -55,9 +55,7 @@ const { data: form, isLoading: formLoading, error: formError, refetch: refetchFo
   refetchOnWindowFocus: false,
 })
 
-if (import.meta.server) {
-  await suspense()
-}
+// Removed SSR suspense to improve TTFB during backend cold starts
 
 const openCompleteFormRef = ref(null)
 

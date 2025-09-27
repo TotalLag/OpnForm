@@ -31,13 +31,18 @@ provider:
     PHP_POST_MAX_SIZE: '64M'
     PHP_UPLOAD_MAX_FILESIZE: '64M'
     QUEUE_CONNECTION: 'sqs'
+    SQS_QUEUE: ${construct:jobs.queueUrl}
     SELF_HOSTED: 'true'
     SESSION_DRIVER: 'database'
     SESSION_LIFETIME: '120'
+    SESSION_SECURE_COOKIE: 'true'
+    SESSION_HTTP_ONLY: 'true'
+    SESSION_SAME_SITE: 'none'
     SHOW_OFFICIAL_TEMPLATES: 'true'
 
     # 📦 Non-sensitive deploy-time SSM parameters
     APP_URL: ${ssm:${param:ssmPrefix}/APP_URL}
+    FRONT_URL: ${ssm:${param:ssmPrefix}/FRONT_URL}
     AWS_BUCKET: ${ssm:${param:ssmPrefix}/AWS_BUCKET}
     AWS_ENDPOINT: ${ssm:${param:ssmPrefix}/AWS_ENDPOINT}
     AWS_URL: ${ssm:${param:ssmPrefix}/AWS_URL}
@@ -47,8 +52,11 @@ provider:
     # 🔐 Sensitive runtime secrets (auto-rotating on cold start)
     APP_KEY: bref-ssm:${param:ssmPrefix}/APP_KEY
     DATABASE_URL: bref-ssm:${param:ssmPrefix}/DATABASE_URL
+    REFRESH_TOKEN: bref-ssm:${param:ssmPrefix}/REFRESH_TOKEN
     JWT_SECRET: bref-ssm:${param:ssmPrefix}/JWT_SECRET
     REDIS_URL: bref-ssm:${param:ssmPrefix}/REDIS_URL
+    STORJ_KEY: bref-ssm:${param:ssmPrefix}/STORJ_KEY
+    STORJ_SECRET: bref-ssm:${param:ssmPrefix}/STORJ_SECRET
 
   iam:
     role:
@@ -93,6 +101,15 @@ functions:
           rate: rate(1 minute)
           input: '"schedule:run"'
 
+constructs:
+    jobs:
+        type: queue
+        worker:
+            handler: Bref\LaravelBridge\Queue\QueueHandler
+            runtime: php-82
+            timeout: 60 # seconds
+
 plugins:
   - ./vendor/bref/bref
   - ./vendor/bref/extra-php-extensions
+  - serverless-lift
