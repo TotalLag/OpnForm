@@ -1,6 +1,6 @@
-// https://nuxt.com/docs/api/configuration/nuxt-config
-import runtimeConfig from "./runtimeConfig"
-import sitemap from "./sitemap"
+ // https://nuxt.com/docs/api/configuration/nuxt-config
+ import runtimeConfig from "./runtimeConfig"
+ import sitemap from "./sitemap"
 
 export default defineNuxtConfig({
   loglevel: process.env.NUXT_LOG_LEVEL || 'info',
@@ -19,10 +19,6 @@ export default defineNuxtConfig({
       '@sentry/nuxt/module',
       '@zadigetvoltaire/nuxt-gtm',
   ],
-
-  build: {
-      transpile: ["vue-notion", "vue-signature-pad", "@zxing/library"],
-  },
 
   i18n: {
       locales: [
@@ -125,6 +121,15 @@ export default defineNuxtConfig({
   },
 
   icon: {
+      provider: 'server',
+      // Serve icon collections on-demand from CDN (no local @iconify-json/* install needed)
+      serverBundle: {
+        remote: 'jsdelivr' // or 'unpkg'
+      },
+      // Use a non-/api path to avoid backend proxy conflicts
+      localApiEndpoint: '/__icon',
+      // Be explicit: when collection or icon is missing locally, fall back to Iconify API
+      fallbackToApi: true,
       clientBundle: {
           scan: {
               globInclude: ['**/*.vue', '**/*.json'],
@@ -139,5 +144,39 @@ export default defineNuxtConfig({
 
   sitemap,
   runtimeConfig,
-  compatibilityDate: '2024-10-30'
+  compatibilityDate: '2024-10-30',
+  nitro: {
+    preset: 'cloudflare-pages',
+    externals: {
+      inline: ['clone-deep']
+    },
+
+    routeRules: {
+        // Internal endpoints (don't proxy)
+        '/__icon/**': {},
+        '/api/_nuxt_icon/**': {},
+        '/api/_ipx/**': {},
+        // Keep this internal so Nitro can fetch Laravel '/content/feature-flags'
+        '/api/feature-flags': {},
+
+        // API routes — proxied to backend on a different domain
+        '/api/**': {
+        proxy: `${process.env.NUXT_PRIVATE_API_BASE}/**`,
+        cors: true, // allow CORS if frontend/backend are different origins
+        },
+
+        '/open/**': {
+        proxy: `${process.env.NUXT_PRIVATE_API_BASE}/open/**`,
+        cors: true
+        },
+
+        // '/forms/assets/**': {
+        // proxy: `${process.env.NUXT_PRIVATE_API_BASE}/forms/assets/**`,
+        // cors: true
+        // },
+
+        // Optional: block dotfiles
+        '/**/.**': {}
+    }
+    }
 })

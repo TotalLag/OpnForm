@@ -1,0 +1,113 @@
+service: laravel
+
+# Set your team ID if you are using Bref Cloud
+bref:
+  team: opnform
+
+params:
+  default:
+    ssmPrefix: /laravel/${sls:stage}
+
+provider:
+  name: aws
+  region: us-east-1
+
+  environment:
+    # 🌱 Non-sensitive variables (deploy-time, simpler)
+    APP_DEBUG: 'false'
+    APP_ENV: production
+    APP_NAME: 'OpnForm'
+    TRUSTED_PROXIES: '*'
+    CACHE_DRIVER: 'database'
+    DB_CONNECTION: 'pgsql'
+    FILESYSTEM_DRIVER: 's3'
+    AWS_USE_PATH_STYLE_ENDPOINT: 'true'
+    JWT_SKIP_IP_UA_VALIDATION: 'true'
+    LOCAL_FILESYSTEM_VISIBILITY: 'public'
+    LOG_CHANNEL: 'errorlog'
+    LOG_LEVEL: 'debug'
+    PHP_MAX_EXECUTION_TIME: '600'
+    PHP_MEMORY_LIMIT: '1G'
+    PHP_POST_MAX_SIZE: '64M'
+    PHP_UPLOAD_MAX_FILESIZE: '64M'
+    QUEUE_CONNECTION: sqs
+    SQS_QUEUE: ${construct:jobs.queueUrl}
+    SELF_HOSTED: 'true'
+    SESSION_DRIVER: 'database'
+    SESSION_LIFETIME: '120'
+    SESSION_SECURE_COOKIE: 'true'
+    SESSION_HTTP_ONLY: 'true'
+    SESSION_SAME_SITE: 'none'
+    SHOW_OFFICIAL_TEMPLATES: 'true'
+
+    # 📦 Non-sensitive deploy-time SSM parameters
+    APP_URL: ${ssm:${param:ssmPrefix}/APP_URL}
+    AWS_BUCKET: ${ssm:${param:ssmPrefix}/AWS_BUCKET}
+    AWS_ENDPOINT: ${ssm:${param:ssmPrefix}/AWS_ENDPOINT}
+    AWS_URL: ${ssm:${param:ssmPrefix}/AWS_URL}
+    MAIL_FROM_ADDRESS: ${ssm:${param:ssmPrefix}/MAIL_FROM_ADDRESS}
+    MAIL_FROM_NAME: ${ssm:${param:ssmPrefix}/MAIL_FROM_NAME}
+
+    # 🔐 Sensitive runtime secrets (auto-rotating on cold start)
+    APP_KEY: bref-ssm:${param:ssmPrefix}/APP_KEY
+    DATABASE_URL: bref-ssm:${param:ssmPrefix}/DATABASE_URL
+    JWT_SECRET: bref-ssm:${param:ssmPrefix}/JWT_SECRET
+    REDIS_URL: bref-ssm:${param:ssmPrefix}/REDIS_URL
+    STORJ_KEY: bref-ssm:${param:ssmPrefix}/STORJ_KEY
+    STORJ_SECRET: bref-ssm:${param:ssmPrefix}/STORJ_SECRET
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action: ssm:GetParameters
+          Resource: "arn:aws:ssm:${aws:region}:${aws:accountId}:parameter${param:ssmPrefix}/*"
+
+package:
+  patterns:
+    - '!node_modules/**'
+    - '!public/storage'
+    - '!resources/assets/**'
+    - '!resources/css/**'
+    - '!resources/images/**'
+    - '!resources/js/**'
+    - '!storage/**'
+    - '!tests/**'
+    - '!database/*.sqlite'
+    - '!public/build/**'
+    - 'public/build/manifest.json'
+
+functions:
+  web:
+    handler: public/index.php
+    runtime: php-82-fpm
+    layers:
+      - ${bref-extra:redis-php-82}
+    timeout: 28
+    events:
+      - httpApi: '*'
+
+  artisan:
+    handler: artisan
+    runtime: php-82-console
+    layers:
+      - ${bref-extra:redis-php-82}
+    timeout: 720
+    # ✅ Enable Laravel scheduler (optional but recommended)
+    events:
+      - schedule:
+          rate: rate(1 minute)
+          input: '"schedule:run"'
+
+constructs:
+    jobs:
+        type: queue
+        worker:
+            handler: Bref\LaravelBridge\Queue\QueueHandler
+            runtime: php-82
+            timeout: 60 # seconds
+
+plugins:
+  - ./vendor/bref/bref
+  - ./vendor/bref/extra-php-extensions
+  - serverless-lift
