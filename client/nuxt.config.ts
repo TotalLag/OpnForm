@@ -20,10 +20,6 @@ export default defineNuxtConfig({
       '@zadigetvoltaire/nuxt-gtm',
   ],
 
-  build: {
-      transpile: ["vue-notion", "vue-signature-pad", "@zxing/library", "js-sha256", "amplitude-js", "crisp-sdk-web", "libphonenumber-js", "quill", "vue-chartjs", "chart.js", "webcam-easy", "v-calendar"],
-  },
-
   i18n: {
       locales: [
         { code: 'en', name: 'English', iso: 'en-US', file: 'en.json' },
@@ -151,6 +147,9 @@ export default defineNuxtConfig({
   compatibilityDate: '2024-10-30',
   nitro: {
     preset: 'cloudflare-pages',
+    externals: {
+      inline: ['clone-deep']
+    },
 
     routeRules: {
         // Internal endpoints (don't proxy)
