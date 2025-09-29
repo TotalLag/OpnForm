@@ -12,7 +12,7 @@ import { usePartialSubmission } from '~/composables/forms/usePartialSubmission.j
 import { useIsIframe } from '~/composables/useIsIframe'
 import { useAmplitude } from '~/composables/useAmplitude'
 import { useConfetti } from '~/composables/useConfetti'
-import { cloneDeep } from 'lodash'
+import cloneDeep from 'clone-deep'
 
 /**
  * @fileoverview Main orchestrator composable for form operations.
