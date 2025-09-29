@@ -21,7 +21,7 @@ export default defineNuxtConfig({
   ],
 
   build: {
-      transpile: ["vue-notion", "vue-signature-pad", "@zxing/library", "js-sha256"],
+      transpile: ["vue-notion", "vue-signature-pad", "@zxing/library", "js-sha256", "amplitude-js"],
   },
 
   i18n: {
