@@ -21,7 +21,7 @@ export default defineNuxtConfig({
   ],
 
   build: {
-      transpile: ["vue-notion", "vue-signature-pad", "@zxing/library", "js-sha256", "amplitude-js", "crisp-sdk-web", "libphonenumber-js"],
+      transpile: ["vue-notion", "vue-signature-pad", "@zxing/library", "js-sha256", "amplitude-js", "crisp-sdk-web", "libphonenumber-js", "quill", "vue-chartjs", "chart.js", "webcam-easy", "v-calendar"],
   },
 
   i18n: {
