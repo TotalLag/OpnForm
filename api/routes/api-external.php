@@ -7,7 +7,15 @@
 use App\Http\Controllers\Integrations\Zapier;
 use App\Http\Controllers\Integrations\Zapier\ListFormsController;
 use App\Http\Controllers\Integrations\Zapier\ListWorkspacesController;
+use App\Http\Controllers\Forms\PublicFormController;
 use Illuminate\Support\Facades\Route;
+
+// Public asset proxy routes - in api-external to avoid AcceptsJsonMiddleware
+// This allows redirect responses to work properly (not converted to JSON)
+
+// Route 1: Nuxt proxy calls this
+Route::get('/open/forms/assets/{assetFileName}', [PublicFormController::class, 'showAsset'])
+    ->name('external.open.forms.assets.show');
 
 Route::prefix('external')
     ->middleware('auth:sanctum')
