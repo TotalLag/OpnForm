@@ -82,18 +82,18 @@ package:
 functions:
   web:
     handler: public/index.php
-    runtime: php-82-fpm
+    runtime: php-83-fpm
     layers:
-      - ${bref-extra:redis-php-82}
+      - ${bref-extra:redis-php-83}
     timeout: 28
     events:
       - httpApi: '*'
 
   artisan:
     handler: artisan
-    runtime: php-82-console
+    runtime: php-83-console
     layers:
-      - ${bref-extra:redis-php-82}
+      - ${bref-extra:redis-php-83}
     timeout: 720
     # ✅ Enable Laravel scheduler (optional but recommended)
     events:
@@ -106,7 +106,7 @@ constructs:
         type: queue
         worker:
             handler: Bref\LaravelBridge\Queue\QueueHandler
-            runtime: php-82
+            runtime: php-83
             timeout: 60 # seconds
 
 plugins:
