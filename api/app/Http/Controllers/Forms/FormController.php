@@ -224,9 +224,23 @@ class FormController extends Controller
         $newPath = self::ASSETS_UPLOAD_PATH . '/' . $fileNameParser->getMovedFileName();
         Storage::move($fileName, $newPath);
 
+        $movedFileName = $fileNameParser->getMovedFileName();
+        $relativePath = '/forms/assets/' . $movedFileName;
+
+        // Build absolute URL for the uploaded asset:
+        // - Prefer the SEO-selected custom domain (sent via x-custom-domain header)
+        // - Fallback to the configured frontend URL
+        $absoluteUrl = null;
+        $customDomainHeader = $request->header(\App\Http\Middleware\CustomDomainRestriction::CUSTOM_DOMAIN_HEADER);
+        if ($customDomainHeader && \preg_match(\App\Http\Requests\Workspace\CustomDomainRequest::CUSTOM_DOMAINS_REGEX, $customDomainHeader)) {
+            $absoluteUrl = 'https://' . $customDomainHeader . $relativePath;
+        } else {
+            $absoluteUrl = front_url($relativePath);
+        }
+
         return $this->success([
             'message' => 'File uploaded.',
-            'url' => route('forms.assets.show', [$fileNameParser->getMovedFileName()]),
+            'url' => $absoluteUrl,
         ]);
     }
 

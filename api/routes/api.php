@@ -201,6 +201,7 @@ Route::group(['middleware' => 'auth.multi'], function () {
                 '/assets/upload',
                 [FormController::class, 'uploadAsset']
             )->withoutMiddleware(['auth.multi'])->name('assets.upload');
+            // Public proxy to storage (Storj/S3): returns redirect Location to signed URL
             Route::get(
                 '/{form}/uploaded-file/{filename}',
                 [FormController::class, 'viewFile']
@@ -356,9 +357,6 @@ Route::prefix('forms')->name('forms.')->group(function () {
     Route::get('{form}', [PublicFormController::class, 'show'])->name('show');
     Route::get('{form}/submissions/{submission_id}', [PublicFormController::class, 'fetchSubmission'])->name('fetchSubmission');
 
-    // File uploads
-    Route::get('assets/{assetFileName}', [PublicFormController::class, 'showAsset'])->name('assets.show');
-
     // AI
     Route::post('ai/generate', [\App\Http\Controllers\Forms\AiFormController::class, 'generateForm'])->name('ai.generate');
     Route::get('ai/{aiFormCompletion}', [\App\Http\Controllers\Forms\AiFormController::class, 'show'])->name('ai.show');
@@ -394,7 +392,7 @@ Route::post(
 
 Route::post(
     '/vapor/signed-storage-url',
-    [\App\Http\Controllers\Content\SignedStorageUrlController::class, 'store']
+    [\App\Http\Controllers\Content\StorjSignedStorageUrlController::class, 'store']
 )->name('vapor.signed-storage-url');
 Route::post(
     '/upload-file',
