@@ -1,4 +1,5 @@
 import { useSubdomainRedirect } from '~/composables/useSubdomainRedirect'
+import { resolveRequestHost } from '~/lib/request-host'
 
 const nonIndexablePathPatterns = [
   /^\/admin(?:\/|$)/,
@@ -96,8 +97,7 @@ function resolveCanonicalBaseUrl () {
 
   if (import.meta.server) {
     const event = useRequestEvent()
-    const forwardedHost = event?.node.req.headers['x-forwarded-host']
-    const host = forwardedHost || event?.node.req.headers.host
+    const host = resolveRequestHost(event?.node.req.headers)
     const protocol = event?.node.req.headers['x-forwarded-proto'] || 'https'
 
     return host ? `${protocol}://${host}` : ''

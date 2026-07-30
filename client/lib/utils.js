@@ -1,3 +1,5 @@
+import { resolveRequestHost } from './request-host.js'
+
 export const hash = (str, seed = 0) => {
   let h1 = 0xdeadbeef ^ seed,
     h2 = 0x41c6ce57 ^ seed
@@ -73,9 +75,10 @@ export const appUrl = (path = "/") => {
  */
 export const getHost = function () {
   if (import.meta.server) {
-    return (
-      getDomain(useNuxtApp().ssrContext?.event.context.siteConfigNitroOrigin) ||
-      useNuxtApp().ssrContext?.event.node.req.headers.host
+    const event = useNuxtApp().ssrContext?.event
+    return resolveRequestHost(
+      event?.node.req.headers,
+      getDomain(event?.context.siteConfigNitroOrigin),
     )
   } else {
     return window.location.host

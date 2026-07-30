@@ -18,8 +18,17 @@ class HealthCheckController extends Controller
 
         $checks = [
             'database' => false,
-            'redis' => false,
         ];
+
+        $shouldCheckRedis = self::usesRedis([
+            config('cache.default'),
+            config('session.driver'),
+            config('queue.default'),
+        ]);
+
+        if ($shouldCheckRedis) {
+            $checks['redis'] = false;
+        }
         $overallStatus = true;
 
         try {
@@ -30,15 +39,17 @@ class HealthCheckController extends Controller
             $overallStatus = false;
         }
 
-        try {
-            /** @var mixed $redisConnection */
-            $redisConnection = app(RedisFactory::class)->connection();
-            $method = 'ping';
-            $redisConnection->{$method}();
-            $checks['redis'] = true;
-        } catch (Throwable $e) {
-            Log::error('Health check: Redis connection failed', ['exception' => $e->getMessage()]);
-            $overallStatus = false;
+        if ($shouldCheckRedis) {
+            try {
+                /** @var mixed $redisConnection */
+                $redisConnection = app(RedisFactory::class)->connection();
+                $method = 'ping';
+                $redisConnection->{$method}();
+                $checks['redis'] = true;
+            } catch (Throwable $e) {
+                Log::error('Health check: Redis connection failed', ['exception' => $e->getMessage()]);
+                $overallStatus = false;
+            }
         }
 
         if ($overallStatus) {
@@ -52,5 +63,10 @@ class HealthCheckController extends Controller
             'status' => 'error',
             'dependencies' => $checks,
         ], 503);
+    }
+
+    private static function usesRedis(array $drivers): bool
+    {
+        return in_array('redis', $drivers, true);
     }
 }

@@ -21,3 +21,7 @@ client/.env.*
 !.env.example
 !api/.env.example
 !client/.env.example
+
+# Python cache artifacts
+__pycache__/
+*.pyc

@@ -11,6 +11,9 @@ const viteCacheDir = process.env.NUXT_VITE_CACHE_DIR
 
 export default defineNuxtConfig({
   loglevel: process.env.NUXT_LOG_LEVEL || 'info',
+  // Local and test builds keep Nuxt's default preset. CI opts into this only
+  // for the private Lambda shadow package.
+  ...(process.env.NITRO_PRESET ? {nitro: {preset: process.env.NITRO_PRESET}} : {}),
   devtools: {enabled: isDevtoolsEnabled},
   ...(buildDir ? {buildDir} : {}),
   ...(viteCacheDir ? {vite: {cacheDir: viteCacheDir}} : {}),

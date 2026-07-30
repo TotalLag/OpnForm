@@ -1,0 +1,433 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Branch-scoped, no-DNS OpnForm Nuxt UI shadow
+
+Parameters:
+  ShadowPrefix:
+    Type: String
+    AllowedPattern: '^opnform-ui-shadow-[a-z0-9-]{1,12}-[a-f0-9]{12}$'
+    ConstraintDescription: Must be the deterministic UI shadow prefix.
+  ApiOriginDomain:
+    Type: String
+    AllowedPattern: '^[a-z0-9]{10}\.execute-api\.us-east-1\.amazonaws\.com$'
+    ConstraintDescription: Must be a us-east-1 API Gateway execute-api domain.
+  LambdaArtifactBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+    ConstraintDescription: Must be the protected UI artifact bucket name.
+  LambdaArtifactKey:
+    Type: String
+    AllowedPattern: '^opnform-ui-shadow-[a-z0-9-]{1,12}-[a-f0-9]{12}/[a-f0-9]{40}/lambda\.zip$'
+
+Resources:
+  PublicAssetsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ShadowPrefix}-assets'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: opnform:scope
+          Value: ui-shadow
+        - Key: opnform:prefix
+          Value: !Ref ShadowPrefix
+
+  NuxtLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ShadowPrefix}-ssr'
+      RetentionInDays: 14
+
+  NuxtLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ShadowPrefix}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: WriteShadowLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ShadowPrefix}-ssr:*'
+
+  NuxtLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ShadowPrefix}-ssr'
+      Description: !Sub 'No-DNS Nuxt UI shadow for ${ShadowPrefix}'
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Handler: index.handler
+      MemorySize: 2048
+      Timeout: 28
+      Role: !GetAtt NuxtLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaArtifactBucket
+        S3Key: !Ref LambdaArtifactKey
+      Environment:
+        Variables:
+          NUXT_PUBLIC_API_BASE: /api
+          NUXT_PRIVATE_API_BASE: !Sub 'https://${ApiOriginDomain}'
+      Tags:
+        - Key: opnform:scope
+          Value: ui-shadow
+        - Key: opnform:prefix
+          Value: !Ref ShadowPrefix
+    DependsOn: NuxtLambdaLogGroup
+
+  NuxtFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt NuxtLambda.Arn
+      AuthType: AWS_IAM
+      InvokeMode: BUFFERED
+
+  S3OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${ShadowPrefix}-s3-oac'
+        Description: Private S3 access for the UI shadow
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  LambdaOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${ShadowPrefix}-lambda-oac'
+        Description: IAM-only Function URL access for the UI shadow
+        OriginAccessControlOriginType: lambda
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  NoSharedCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub '${ShadowPrefix}-no-shared-cache'
+        DefaultTTL: 0
+        MaxTTL: 0
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingBrotli: false
+          EnableAcceptEncodingGzip: false
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+  ImmutableNuxtAssetCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub '${ShadowPrefix}-immutable-nuxt-assets'
+        DefaultTTL: 31536000
+        MaxTTL: 31536000
+        MinTTL: 86400
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+  AllViewerOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub '${ShadowPrefix}-all-viewer-no-host'
+        CookiesConfig:
+          CookieBehavior: all
+        HeadersConfig:
+          HeaderBehavior: allExcept
+          Headers:
+            - host
+        QueryStringsConfig:
+          QueryStringBehavior: all
+
+  ViewerHostAndApiRewrite:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub '${ShadowPrefix}-viewer-rewrite'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Overwrite trusted viewer and forwarded hosts, then strip one API prefix.
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var host = request.headers.host && request.headers.host.value;
+          delete request.headers['x-opnform-viewer-host'];
+          delete request.headers['x-forwarded-host'];
+          if (host) {
+            request.headers['x-opnform-viewer-host'] = { value: host };
+            request.headers['x-forwarded-host'] = { value: host };
+          }
+          if (request.uri.indexOf('/api/') === 0 && request.uri.indexOf('/api/_nuxt_icon/') !== 0) {
+            request.uri = request.uri.slice(4);
+          }
+          return request;
+        }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: nuxt-ssr
+            DomainName: !Select [2, !Split ['/', !GetAtt NuxtFunctionUrl.FunctionUrl]]
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+            OriginAccessControlId: !GetAtt LambdaOriginAccessControl.Id
+          - Id: laravel-api
+            DomainName: !Ref ApiOriginDomain
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+          - Id: private-public-assets
+            DomainName: !GetAtt PublicAssetsBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+            OriginAccessControlId: !GetAtt S3OriginAccessControl.Id
+        DefaultCacheBehavior:
+          TargetOriginId: nuxt-ssr
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: !Ref NoSharedCachePolicy
+          OriginRequestPolicyId: !Ref AllViewerOriginRequestPolicy
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt ViewerHostAndApiRewrite.FunctionARN
+        CacheBehaviors:
+          # This must remain before /api/* in reviews and route-table tests.
+          - PathPattern: /api/_nuxt_icon/*
+            TargetOriginId: nuxt-ssr
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+            OriginRequestPolicyId: !Ref AllViewerOriginRequestPolicy
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt ViewerHostAndApiRewrite.FunctionARN
+          - PathPattern: /api/*
+            TargetOriginId: laravel-api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+            OriginRequestPolicyId: !Ref AllViewerOriginRequestPolicy
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt ViewerHostAndApiRewrite.FunctionARN
+          - PathPattern: /open/*
+            TargetOriginId: laravel-api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+            OriginRequestPolicyId: !Ref AllViewerOriginRequestPolicy
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt ViewerHostAndApiRewrite.FunctionARN
+          - PathPattern: /local/temp/*
+            TargetOriginId: laravel-api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+            OriginRequestPolicyId: !Ref AllViewerOriginRequestPolicy
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt ViewerHostAndApiRewrite.FunctionARN
+          - PathPattern: /_nuxt/*
+            TargetOriginId: private-public-assets
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref ImmutableNuxtAssetCachePolicy
+          - PathPattern: /icons/*
+            TargetOriginId: private-public-assets
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+          - PathPattern: /fonts/*
+            TargetOriginId: private-public-assets
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+          - PathPattern: /widgets/*
+            TargetOriginId: private-public-assets
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+          - PathPattern: /video/*
+            TargetOriginId: private-public-assets
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+          - PathPattern: /img/*
+            TargetOriginId: private-public-assets
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+          - PathPattern: /favicon.ico
+            TargetOriginId: private-public-assets
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+          - PathPattern: /robots.txt
+            TargetOriginId: private-public-assets
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+          - PathPattern: /llms.txt
+            TargetOriginId: private-public-assets
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref NoSharedCachePolicy
+      Tags:
+        - Key: opnform:scope
+          Value: ui-shadow
+        - Key: opnform:prefix
+          Value: !Ref ShadowPrefix
+
+  PublicAssetsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PublicAssetsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${PublicAssetsBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution.Id}'
+
+  AllowCloudFrontFunctionUrl:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref NuxtLambda
+      FunctionUrlAuthType: AWS_IAM
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution.Id}'
+
+  AllowCloudFrontInvokeFunction:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref NuxtLambda
+      InvokedViaFunctionUrl: true
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution.Id}'
+
+  LambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ShadowPrefix}-lambda-errors'
+      AlarmDescription: Shadow SSR has one or more Lambda errors in five minutes.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref NuxtLambda
+
+  LambdaThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ShadowPrefix}-lambda-throttles'
+      AlarmDescription: Shadow SSR has one or more throttles in five minutes.
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref NuxtLambda
+
+  LambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ShadowPrefix}-lambda-duration'
+      AlarmDescription: Shadow SSR p99 duration exceeds 20 seconds.
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      ExtendedStatistic: p99
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 20000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref NuxtLambda
+
+Outputs:
+  ShadowPrefix:
+    Value: !Ref ShadowPrefix
+  PublicAssetsBucketName:
+    Value: !Ref PublicAssetsBucket
+  DistributionId:
+    Value: !Ref Distribution
+  CloudFrontHostname:
+    Value: !GetAtt Distribution.DomainName
+  FunctionUrl:
+    Value: !GetAtt NuxtFunctionUrl.FunctionUrl

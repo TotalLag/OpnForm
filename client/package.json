@@ -5,6 +5,10 @@
   "scripts": {
     "build": "NODE_OPTIONS='--max-old-space-size=8192' nuxt build",
     "build:e2e": "E2E=1 NODE_OPTIONS='--max-old-space-size=8192' nuxt build",
+    "build:aws-lambda": "NITRO_PRESET=aws-lambda NODE_OPTIONS='--max-old-space-size=8192' nuxt build",
+    "package:aws-lambda": "node scripts/package-aws-lambda.mjs",
+    "smoke:aws-lambda": "node scripts/smoke-aws-lambda.mjs",
+    "diagnose:aws-lambda": "node scripts/diagnose-aws-lambda.mjs",
     "dev": "export NODE_TLS_REJECT_UNAUTHORIZED=0; node --import ./scripts/node-localstorage-polyfill.mjs ./node_modules/nuxt/bin/nuxt.mjs dev",
     "docker-dev": "export NODE_TLS_REJECT_UNAUTHORIZED=0; node --import ./scripts/node-localstorage-polyfill.mjs ./node_modules/nuxt/bin/nuxt.mjs dev --host 0.0.0.0",
     "generate": "export NODE_TLS_REJECT_UNAUTHORIZED=0; nuxt generate",

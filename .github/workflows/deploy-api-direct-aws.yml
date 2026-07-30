@@ -1,0 +1,294 @@
+name: Deploy API and branch UI shadow to direct AWS
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deploy the production API or a branch UI shadow
+        required: false
+        default: api
+        type: choice
+        options: [api, ui-shadow]
+      mode:
+        description: UI shadow mode; ignored for API deployments
+        required: false
+        default: deploy
+        type: choice
+        options: [deploy, teardown]
+      teardown_confirmation:
+        description: For UI teardown, enter the emitted shadow stack name exactly
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: inputs.target != 'ui-shadow'
+    name: Deploy opnform-prod
+    runs-on: ubuntu-latest
+    environment: opnform-prod
+    env:
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AWS_API_DEPLOYMENT_BUCKET: ${{ secrets.AWS_API_DEPLOYMENT_BUCKET }}
+      AWS_CFN_ROLE_ARN: ${{ secrets.AWS_CFN_ROLE_ARN }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure direct AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Verify target and SSM parameter metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(aws sts get-caller-identity --query Account --output text)" = "$AWS_ACCOUNT_ID"
+          test "${AWS_REGION:-}" = "us-east-1"
+
+          for name in APP_URL FRONT_URL AWS_BUCKET AWS_ENDPOINT AWS_URL MAIL_FROM_ADDRESS MAIL_FROM_NAME APP_KEY DATABASE_URL JWT_SECRET; do
+            test "$(aws ssm get-parameter --name "/opnform/prod/$name" --query 'Parameter.Type' --output text)" = "SecureString"
+          done
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.3
+          tools: composer:v2
+          coverage: none
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Prepare API environment
+        working-directory: api
+        run: cp .env.example .env
+
+      - name: Install API Composer dependencies
+        working-directory: api
+        run: composer install --no-interaction --prefer-dist --no-progress --optimize-autoloader
+
+      - name: Install API Node.js dependencies
+        working-directory: api
+        run: npm ci
+
+      - name: Deploy API stack
+        working-directory: api
+        run: npx serverless deploy --stage prod --region us-east-1
+
+  shadow:
+    if: inputs.target == 'ui-shadow'
+    name: UI shadow (${{ inputs.mode }})
+    runs-on: ubuntu-24.04
+    environment: opnform-prod
+    env:
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AWS_UI_ARTIFACT_BUCKET: ${{ secrets.AWS_UI_ARTIFACT_BUCKET }}
+      AWS_CFN_ROLE_ARN: ${{ secrets.AWS_CFN_ROLE_ARN }}
+      AWS_API_ORIGIN_DOMAIN: ${{ secrets.AWS_API_ORIGIN_DOMAIN }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure direct AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Derive and guard the branch shadow name
+        id: shadow
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ inputs.target }}' = ui-shadow
+          test '${{ inputs.mode }}' = deploy || test '${{ inputs.mode }}' = teardown
+          shadow="$(node client/scripts/shadow-name.mjs "${GITHUB_REF_NAME}")"
+          test "${shadow#opnform-ui-shadow-}" != "$shadow"
+          test "$shadow" != "opnform-prod"
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          artifact_key="${shadow}/${GITHUB_SHA}/lambda.zip"
+          test "$(aws sts get-caller-identity --query Account --output text)" = "$AWS_ACCOUNT_ID"
+          test "${AWS_REGION:-}" = "us-east-1"
+          printf 'name=%s\n' "$shadow" >> "$GITHUB_OUTPUT"
+          printf 'artifact_key=%s\n' "$artifact_key" >> "$GITHUB_OUTPUT"
+
+      - name: Fail closed on a rolled-back branch shadow
+        if: inputs.mode == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shadow='${{ steps.shadow.outputs.name }}'
+          if status="$(aws cloudformation describe-stacks --stack-name "$shadow" --region us-east-1 --query 'Stacks[0].StackStatus' --output text 2>/dev/null)"; then
+            if test "$status" = ROLLBACK_COMPLETE; then
+              echo "Branch shadow is ROLLBACK_COMPLETE; recent failure events follow:" >&2
+              aws cloudformation describe-stack-events \
+                --stack-name "$shadow" \
+                --region us-east-1 \
+                --query 'StackEvents[?contains(ResourceStatus, `FAILED`) || contains(ResourceStatus, `ROLLBACK`)].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason] | [0:20]' \
+                --output table
+              exit 1
+            fi
+          fi
+
+      - name: Delete only the confirmed branch shadow
+        if: inputs.mode == 'teardown'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shadow='${{ steps.shadow.outputs.name }}'
+          test '${{ inputs.teardown_confirmation }}' = "$shadow"
+          test "$shadow" != opnform-prod
+          bucket="$(aws cloudformation describe-stacks --stack-name "$shadow" --region us-east-1 --query 'Stacks[0].Outputs[?OutputKey==`PublicAssetsBucketName`].OutputValue' --output text)"
+          [[ "$bucket" =~ ^opnform-ui-shadow-[a-z0-9-]+-assets$ ]]
+          test "$bucket" != opnform-prod
+          aws s3 rm "s3://$bucket" --recursive
+          aws cloudformation delete-stack --stack-name "$shadow" --region us-east-1
+          aws cloudformation wait stack-delete-complete --stack-name "$shadow" --region us-east-1
+          echo "Deleted $shadow. The private artifact lifecycle retains build objects for 14 days."
+
+      - name: Set up Node.js 22
+        if: inputs.mode == 'deploy'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Validate local deployment guards
+        if: inputs.mode == 'deploy'
+        run: python3 .github/scripts/check-direct-aws-deploy.py
+
+      - name: Check runner memory before the Lambda build
+        if: inputs.mode == 'deploy'
+        run: |
+          set -euo pipefail
+          available_kb="$(awk '/MemAvailable:/ { print $2 }' /proc/meminfo)"
+          test "$available_kb" -ge 9000000
+          printf 'available_kb=%s\n' "$available_kb" | tee client/.aws-shadow-runner-memory.txt
+
+      - name: Install UI dependencies
+        if: inputs.mode == 'deploy'
+        working-directory: client
+        run: npm ci
+
+      - name: Build, package, and smoke the Node 22 Lambda
+        if: inputs.mode == 'deploy'
+        working-directory: client
+        run: |
+          set -euo pipefail
+          mkdir -p .aws-shadow
+          set +e
+          /usr/bin/time -v npm run build:aws-lambda 2> .aws-shadow/build-time.txt
+          build_status=$?
+          set -e
+          grep 'Maximum resident set size' .aws-shadow/build-time.txt | tee .aws-shadow/peak-rss.txt || true
+          test "$build_status" = 0
+          npm run package:aws-lambda
+          test -n "$AWS_API_ORIGIN_DOMAIN"
+          [[ "$AWS_API_ORIGIN_DOMAIN" =~ ^[a-z0-9]{10}\.execute-api\.us-east-1\.amazonaws\.com$ ]]
+          set +e
+          NODE_OPTIONS='--max-old-space-size=8192' NUXT_PRIVATE_API_BASE="https://$AWS_API_ORIGIN_DOMAIN" NUXT_PUBLIC_API_BASE=/api /usr/bin/time -v npm run smoke:aws-lambda 2> .aws-shadow/smoke-time.txt
+          smoke_status=$?
+          set -e
+          grep 'Maximum resident set size' .aws-shadow/smoke-time.txt | tee .aws-shadow/smoke-peak-rss.txt || true
+          test "$smoke_status" = 0
+          stat --printf='lambda_zip_bytes=%s\n' .aws-shadow/lambda.zip | tee .aws-shadow/artifact-bytes.txt
+          du -sb .output/public | awk '{print "public_assets_bytes=" $1}' | tee -a .aws-shadow/artifact-bytes.txt
+
+      - name: Upload the branch Lambda artifact
+        if: inputs.mode == 'deploy'
+        working-directory: client
+        run: |
+          set -euo pipefail
+          aws s3 cp .aws-shadow/lambda.zip \
+            "s3://$AWS_UI_ARTIFACT_BUCKET/${{ steps.shadow.outputs.artifact_key }}" \
+            --cache-control 'no-store,private,max-age=0'
+
+      - name: Create and execute the guarded branch UI change set
+        if: inputs.mode == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shadow='${{ steps.shadow.outputs.name }}'
+          artifact_key='${{ steps.shadow.outputs.artifact_key }}'
+          change_set="${shadow}-change-set"
+          test -n "$AWS_API_ORIGIN_DOMAIN"
+          [[ "$AWS_API_ORIGIN_DOMAIN" =~ ^[a-z0-9]{10}\.execute-api\.us-east-1\.amazonaws\.com$ ]]
+          api_domain="$AWS_API_ORIGIN_DOMAIN"
+
+          if aws cloudformation describe-stacks --stack-name "$shadow" --region us-east-1 >/dev/null 2>&1; then
+            change_set_type=UPDATE
+          else
+            change_set_type=CREATE
+          fi
+
+          aws cloudformation delete-change-set --stack-name "$shadow" --change-set-name "$change_set" --region us-east-1 2>/dev/null || true
+          aws cloudformation create-change-set \
+            --stack-name "$shadow" \
+            --change-set-name "$change_set" \
+            --change-set-type "$change_set_type" \
+            --template-body file://client/infra/aws/ui-shadow.yml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --role-arn "$AWS_CFN_ROLE_ARN" \
+            --parameters \
+              ParameterKey=ShadowPrefix,ParameterValue="$shadow" \
+              ParameterKey=ApiOriginDomain,ParameterValue="$api_domain" \
+              ParameterKey=LambdaArtifactBucket,ParameterValue="$AWS_UI_ARTIFACT_BUCKET" \
+              ParameterKey=LambdaArtifactKey,ParameterValue="$artifact_key" \
+            --region us-east-1 >/dev/null
+
+          if ! aws cloudformation wait change-set-create-complete --stack-name "$shadow" --change-set-name "$change_set" --region us-east-1; then
+            status="$(aws cloudformation describe-change-set --stack-name "$shadow" --change-set-name "$change_set" --region us-east-1 --query Status --output text)"
+            reason="$(aws cloudformation describe-change-set --stack-name "$shadow" --change-set-name "$change_set" --region us-east-1 --query StatusReason --output text)"
+            if test "$change_set_type" = UPDATE && test "$status" = FAILED && [[ "$reason" == *"didn't contain changes"* ]]; then
+              aws cloudformation delete-change-set --stack-name "$shadow" --change-set-name "$change_set" --region us-east-1
+              echo "No UI shadow changes for $shadow."
+              exit 0
+            fi
+            aws cloudformation delete-change-set --stack-name "$shadow" --change-set-name "$change_set" --region us-east-1 || true
+            echo "Change set $change_set failed: $status: $reason" >&2
+            exit 1
+          fi
+
+          aws cloudformation execute-change-set --stack-name "$shadow" --change-set-name "$change_set" --region us-east-1
+          if test "$change_set_type" = CREATE; then
+            aws cloudformation wait stack-create-complete --stack-name "$shadow" --region us-east-1
+          else
+            aws cloudformation wait stack-update-complete --stack-name "$shadow" --region us-east-1
+          fi
+
+      - name: Sync private public assets with explicit cache metadata
+        if: inputs.mode == 'deploy'
+        working-directory: client
+        run: |
+          set -euo pipefail
+          bucket="$(aws cloudformation describe-stacks --stack-name '${{ steps.shadow.outputs.name }}' --region us-east-1 --query 'Stacks[0].Outputs[?OutputKey==`PublicAssetsBucketName`].OutputValue' --output text)"
+          ./scripts/sync-aws-public-assets.sh "$bucket"
+
+      - name: Wait for CloudFront and publish the no-DNS hostname
+        if: inputs.mode == 'deploy'
+        id: endpoint
+        run: |
+          set -euo pipefail
+          stack='${{ steps.shadow.outputs.name }}'
+          distribution_id="$(aws cloudformation describe-stacks --stack-name "$stack" --region us-east-1 --query 'Stacks[0].Outputs[?OutputKey==`DistributionId`].OutputValue' --output text)"
+          hostname="$(aws cloudformation describe-stacks --stack-name "$stack" --region us-east-1 --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontHostname`].OutputValue' --output text)"
+          aws cloudfront wait distribution-deployed --id "$distribution_id"
+          printf 'hostname=%s\n' "$hostname" >> "$GITHUB_OUTPUT"
+          {
+            echo '## UI shadow deployed'
+            echo
+            echo "- Stack: \`$stack\`"
+            echo "- No-DNS URL: https://$hostname"
+            echo '- Lambda and public-asset byte counts plus peak RSS are workflow logs.'
+          } >> "$GITHUB_STEP_SUMMARY"
