@@ -10,6 +10,10 @@ provider:
   stackName: opnform-prod
   deploymentMethod: changesets
   region: us-east-1
+  tags:
+    Project: OpnForm
+  stackTags:
+    Project: OpnForm
   deploymentBucket:
     name: ${env:AWS_API_DEPLOYMENT_BUCKET}
   httpApi:

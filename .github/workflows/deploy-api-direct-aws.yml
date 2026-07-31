@@ -255,6 +255,7 @@ jobs:
             --change-set-type "$change_set_type" \
             --template-body file://client/infra/aws/ui-shadow.yml \
             --capabilities CAPABILITY_NAMED_IAM \
+            --tags Key=Project,Value=OpnForm \
             --role-arn "$AWS_CFN_ROLE_ARN" \
             --parameters \
               ParameterKey=ShadowPrefix,ParameterValue="$shadow" \
