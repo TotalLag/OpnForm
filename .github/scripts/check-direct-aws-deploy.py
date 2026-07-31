@@ -215,7 +215,9 @@ forbid(workflow, r"role-to-assume:\s*arn:aws:iam::\d{12}", "deployment workflow"
 for needle in (
     "https://token.actions.githubusercontent.com",
     "sts.amazonaws.com",
-    "repo:TotalLag/OpnForm:environment:opnform-prod",
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "cabd2a79a1076a31f21d253635cb039d4329a5e8",
+    "repo:TotalLag@1744428/OpnForm@1317796294:environment:opnform-prod",
     "ServerlessArtifactBucketName:",
     "UiShadowArtifactBucketName:",
     "BucketName: !Ref ServerlessArtifactBucketName",
@@ -509,7 +511,7 @@ else:
     if "Resource: !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/opnform-prod/*'" not in statement:
         failures.append("bootstrap template: ReadProductionStack resource scope changed")
 subjects = re.findall(r"token\.actions\.githubusercontent\.com:sub:\s*([^\s]+)", template)
-if subjects != ["repo:TotalLag/OpnForm:environment:opnform-prod"]:
+if subjects != ["repo:TotalLag@1744428/OpnForm@1317796294:environment:opnform-prod"]:
     failures.append("bootstrap template: OIDC subject must be exactly the opnform-prod environment subject")
 for policy in ("AdministratorAccess", "PowerUserAccess"):
     forbid(template, policy, "bootstrap template")
