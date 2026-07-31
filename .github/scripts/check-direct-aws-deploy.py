@@ -61,6 +61,47 @@ def as_list(value):
     return [value]
 
 
+def require_exact_resource_tags(template_data, expected_by_resource, label):
+    resources = template_data.get("Resources", {}) if isinstance(template_data, dict) else {}
+    if not isinstance(resources, dict):
+        failures.append(f"{label}: Resources must be a mapping")
+        return
+
+    for resource_name in expected_by_resource:
+        if resource_name not in resources:
+            failures.append(f"{label}: missing taggable resource {resource_name}")
+
+    for resource_name, resource in resources.items():
+        if not isinstance(resource, dict):
+            failures.append(f"{label}: {resource_name} must be a mapping")
+            continue
+        properties = resource.get("Properties", {})
+        if "Tags" in resource:
+            failures.append(f"{label}: {resource_name} Tags must be under Properties")
+        if resource_name not in expected_by_resource:
+            if isinstance(properties, dict) and "Tags" in properties:
+                failures.append(f"{label}: {resource_name} must not define Tags")
+            continue
+        if not isinstance(properties, dict):
+            failures.append(f"{label}: {resource_name} Properties must be a mapping")
+            continue
+        tags = properties.get("Tags")
+        if not isinstance(tags, list):
+            failures.append(f"{label}: {resource_name} Tags must be a list under Properties")
+            continue
+        tag_map = {}
+        for tag in tags:
+            if not isinstance(tag, dict) or set(tag) != {"Key", "Value"}:
+                failures.append(f"{label}: {resource_name} tags must contain only Key and Value")
+                continue
+            key = tag["Key"]
+            if key in tag_map:
+                failures.append(f"{label}: {resource_name} has duplicate tag {key!r}")
+            tag_map[key] = tag["Value"]
+        if tag_map != expected_by_resource[resource_name]:
+            failures.append(f"{label}: {resource_name} tags must be exactly {expected_by_resource[resource_name]}")
+
+
 def role_statements(template_data, role_name: str):
     if not isinstance(template_data, dict):
         return []
@@ -144,10 +185,14 @@ for needle in (
     require(serverless, needle, "serverless configuration")
 forbid(serverless, r"/laravel/", "serverless configuration")
 if isinstance(serverless_data, dict):
-    if serverless_data.get("provider", {}).get("stackName") != "opnform-prod":
+    provider = serverless_data.get("provider", {})
+    if provider.get("stackName") != "opnform-prod":
         failures.append("serverless configuration: stackName must be opnform-prod")
     if serverless_data.get("params", {}).get("default", {}).get("ssmPrefix") != "/opnform/prod":
         failures.append("serverless configuration: ssmPrefix must be /opnform/prod")
+    for field in ("tags", "stackTags"):
+        if provider.get(field) != {"Project": "OpnForm"}:
+            failures.append(f"serverless configuration: provider.{field} must be exactly Project=OpnForm")
 forbid(serverless, r"\bus-(?!east-1\b)[a-z]+-\d+\b", "serverless configuration")
 
 if package.get("devDependencies", {}).get("serverless") != "3.40.0":
@@ -176,6 +221,20 @@ if isinstance(workflow_data, dict):
         failures.append("deployment workflow: UI shadow job must be separately conditional")
 else:
     failures.append("deployment workflow: YAML root must be a mapping")
+
+if isinstance(workflow_data, dict):
+    shadow_steps = workflow_data.get("jobs", {}).get("shadow", {}).get("steps", [])
+    change_set_steps = [
+        step for step in shadow_steps
+        if isinstance(step, dict) and step.get("name") == "Create and execute the guarded branch UI change set"
+    ]
+    if len(change_set_steps) != 1:
+        failures.append("deployment workflow: UI change-set step must occur exactly once")
+    else:
+        change_set_run = change_set_steps[0].get("run")
+        tag_arguments = re.findall(r"(?:^|\s)--tags\s+([^\s\\]+)", change_set_run if isinstance(change_set_run, str) else "")
+        if tag_arguments != ["Key=Project,Value=OpnForm"]:
+            failures.append("deployment workflow: UI change set must use exactly --tags Key=Project,Value=OpnForm")
 for trigger in ("push", "schedule", "pull_request", "workflow_run", "workflow_call"):
     forbid(workflow, rf"^\s*{trigger}:", "deployment workflow")
 for needle in (
@@ -240,6 +299,17 @@ for needle in (
     "iam:CreateRole",
 ):
     require(template, needle, "bootstrap template")
+require_exact_resource_tags(
+    template_data,
+    {
+        "GitHubActionsOidcProvider": {"Project": "OpnForm"},
+        "ServerlessArtifactBucket": {"Project": "OpnForm"},
+        "UiShadowArtifactBucket": {"Project": "OpnForm"},
+        "OpnFormCloudFormationExecutionRole": {"Project": "OpnForm"},
+        "OpnFormGitHubDeployRole": {"Project": "OpnForm"},
+    },
+    "bootstrap template",
+)
 execution_statements = role_statements(template_data, "OpnFormCloudFormationExecutionRole")
 deploy_statements = role_statements(template_data, "OpnFormGitHubDeployRole")
 all_iam_role_policy_statements = iam_role_policy_statements(template_data)
@@ -247,6 +317,33 @@ if not execution_statements:
     failures.append("bootstrap template: CloudFormation execution role policy statements are missing")
 if not deploy_statements:
     failures.append("bootstrap template: GitHub deploy role policy statements are missing")
+
+handler_tag_statements_expected = {
+    "ManageProductionSchedule": (
+        ["events:DeleteRule", "events:DescribeRule", "events:ListTagsForResource", "events:ListTargetsByRule", "events:PutRule", "events:PutTargets", "events:RemoveTargets", "events:TagResource", "events:UntagResource"],
+        "arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/opnform-prod-*",
+    ),
+    "ManageProductionLogGroups": (
+        ["logs:DeleteLogGroup", "logs:ListTagsForResource", "logs:PutRetentionPolicy", "logs:TagResource", "logs:UntagResource"],
+        "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/opnform-prod-*",
+    ),
+    "ManageUiShadowPublicBuckets": (
+        ["s3:CreateBucket", "s3:DeleteBucket", "s3:DeleteBucketPolicy", "s3:GetBucketLocation", "s3:GetBucketPolicy", "s3:GetBucketPublicAccessBlock", "s3:GetBucketTagging", "s3:ListTagsForResource", "s3:PutEncryptionConfiguration", "s3:PutBucketOwnershipControls", "s3:PutBucketPolicy", "s3:PutBucketPublicAccessBlock", "s3:PutBucketTagging", "s3:TagResource", "s3:UntagResource"],
+        "arn:aws:s3:::opnform-ui-shadow-*-assets",
+    ),
+    "ManageUiShadowLogs": (
+        ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:ListTagsForResource", "logs:PutRetentionPolicy", "logs:TagResource", "logs:UntagResource"],
+        "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/opnform-ui-shadow-*",
+    ),
+}
+for sid, (expected_actions, expected_resource) in handler_tag_statements_expected.items():
+    statements = [statement for statement in execution_statements if statement.get("Sid") == sid]
+    if len(statements) != 1:
+        failures.append(f"bootstrap template: exactly one {sid} statement is required")
+        continue
+    statement = statements[0]
+    if as_list(statement.get("Action")) != expected_actions or statement.get("Resource") != expected_resource:
+        failures.append(f"bootstrap template: {sid} handler tag actions or resource scope changed")
 
 artisan_invoke_statements = [
     statement for statement in deploy_statements
@@ -270,9 +367,14 @@ for statement in deploy_statements:
         failures.append("bootstrap template: lambda invocation must stay in InvokeOnlyProductionArtisan")
 
 event_source_mapping_resource = "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*"
-event_source_mapping_actions_expected = [
-    "lambda:CreateEventSourceMapping",
+event_source_mapping_actions_expected = ["lambda:CreateEventSourceMapping"]
+event_source_mapping_management_actions_expected = [
+    "lambda:DeleteEventSourceMapping",
+    "lambda:GetEventSourceMapping",
+    "lambda:ListTags",
     "lambda:TagResource",
+    "lambda:UntagResource",
+    "lambda:UpdateEventSourceMapping",
 ]
 event_source_mapping_statements = [
     (role_name, policy_name, statement)
@@ -301,7 +403,7 @@ else:
         or len(actions) != len(set(actions))
     ):
         failures.append(
-            "bootstrap template: CreateProductionEventSourceMappings must list exactly lambda:CreateEventSourceMapping and lambda:TagResource"
+            "bootstrap template: CreateProductionEventSourceMappings must allow only lambda:CreateEventSourceMapping"
         )
     if statement.get("Resource") != event_source_mapping_resource:
         failures.append(
@@ -311,6 +413,21 @@ else:
         failures.append(
             "bootstrap template: CreateProductionEventSourceMappings must not add conditions or other fields"
         )
+
+mapping_management_statements = [
+    statement for statement in execution_statements
+    if statement.get("Sid") == "ManageProductionEventSourceMappings"
+]
+if len(mapping_management_statements) != 1:
+    failures.append("bootstrap template: exactly one ManageProductionEventSourceMappings statement is required")
+else:
+    statement = mapping_management_statements[0]
+    if as_list(statement.get("Action")) != event_source_mapping_management_actions_expected:
+        failures.append("bootstrap template: ManageProductionEventSourceMappings must contain the exact mapping lifecycle and tag actions")
+    if statement.get("Resource") != event_source_mapping_resource:
+        failures.append("bootstrap template: ManageProductionEventSourceMappings must use the exact regional event-source-mapping ARN")
+    if set(statement) != {"Sid", "Effect", "Action", "Resource"}:
+        failures.append("bootstrap template: ManageProductionEventSourceMappings must not add conditions or other fields")
 
 event_source_mapping_actions = [
     (role_name, policy_name, statement)
@@ -331,35 +448,46 @@ elif (
         "bootstrap template: lambda:CreateEventSourceMapping must stay in CreateProductionEventSourceMappings in the CloudFormation execution role policy"
     )
 
-event_source_mapping_tag_actions = [
-    (role_name, policy_name, statement)
-    for role_name, policy_name, statement in all_iam_role_policy_statements
-    if "lambda:TagResource" in as_list(statement.get("Action"))
-    and statement.get("Resource") == event_source_mapping_resource
-]
-if len(event_source_mapping_tag_actions) != 1:
-    failures.append(
-        "bootstrap template: mapping lambda:TagResource must occur only in CreateProductionEventSourceMappings"
-    )
-elif (
-    event_source_mapping_tag_actions[0][:2]
-    != ("OpnFormCloudFormationExecutionRole", "OpnFormProductionStack")
-    or event_source_mapping_tag_actions[0][2].get("Sid")
-    != "CreateProductionEventSourceMappings"
-):
-    failures.append(
-        "bootstrap template: mapping lambda:TagResource must stay in CreateProductionEventSourceMappings in the CloudFormation execution role policy"
-    )
+for mapping_action in ("lambda:ListTags", "lambda:TagResource", "lambda:UntagResource"):
+    mapping_action_statements = [
+        (role_name, policy_name, statement)
+        for role_name, policy_name, statement in all_iam_role_policy_statements
+        if mapping_action in as_list(statement.get("Action"))
+        and statement.get("Resource") == event_source_mapping_resource
+    ]
+    if len(mapping_action_statements) != 1:
+        failures.append(
+            f"bootstrap template: mapping {mapping_action} must occur only in ManageProductionEventSourceMappings"
+        )
+    elif (
+        mapping_action_statements[0][:2]
+        != ("OpnFormCloudFormationExecutionRole", "OpnFormProductionStack")
+        or mapping_action_statements[0][2].get("Sid")
+        != "ManageProductionEventSourceMappings"
+    ):
+        failures.append(
+            f"bootstrap template: mapping {mapping_action} must stay in ManageProductionEventSourceMappings in the CloudFormation execution role policy"
+        )
 
 for role_name, policy_name, statement in all_iam_role_policy_statements:
-    if "lambda:TagResource" not in as_list(statement.get("Action")):
+    if "lambda:ListTags" in as_list(statement.get("Action")) and (
+        (role_name, policy_name, statement.get("Sid"), statement.get("Resource"))
+        != (
+            "OpnFormCloudFormationExecutionRole",
+            "OpnFormProductionStack",
+            "ManageProductionEventSourceMappings",
+            event_source_mapping_resource,
+        )
+    ):
+        failures.append("bootstrap template: lambda:ListTags must stay on exact production event-source mappings")
+    if not any(action in {"lambda:TagResource", "lambda:UntagResource"} for action in as_list(statement.get("Action"))):
         continue
     is_mapping_tag_statement = (
         (role_name, policy_name, statement.get("Sid"))
         == (
             "OpnFormCloudFormationExecutionRole",
             "OpnFormProductionStack",
-            "CreateProductionEventSourceMappings",
+            "ManageProductionEventSourceMappings",
         )
         and statement.get("Resource") == event_source_mapping_resource
     )
@@ -385,7 +513,7 @@ for role_name, policy_name, statement in all_iam_role_policy_statements:
     )
     if not is_mapping_tag_statement and not is_function_tag_statement and not is_ui_shadow_function_tag_statement:
         failures.append(
-            "bootstrap template: lambda:TagResource may only tag approved production functions, UI shadow functions, or event-source mappings"
+            "bootstrap template: Lambda tag updates may only target approved production functions, UI shadow functions, or event-source mappings"
         )
 
 expected_http_api_actions = {
@@ -395,6 +523,7 @@ expected_http_api_actions = {
     "apigateway:POST",
     "apigateway:PUT",
     "apigateway:TagResource",
+    "apigateway:UntagResource",
 }
 manage_http_api = [
     statement for statement in execution_statements if statement.get("Sid") == "ManageHttpApi"
@@ -406,7 +535,7 @@ else:
     actions = as_list(statement.get("Action"))
     if set(actions) != expected_http_api_actions or len(actions) != len(expected_http_api_actions):
         failures.append(
-            "bootstrap template: ManageHttpApi must enumerate only the approved HTTP API actions including apigateway:TagResource"
+            "bootstrap template: ManageHttpApi must enumerate only the approved HTTP API actions including stage tag updates"
         )
     if statement.get("Resource") != "*":
         failures.append("bootstrap template: ManageHttpApi resource scope must remain '*' for HTTP API control plane")
@@ -422,6 +551,31 @@ for statement in deploy_statements:
     ]
     if api_actions:
         failures.append("bootstrap template: GitHub deploy role must not grant API Gateway actions")
+
+expected_ui_alarm_actions = [
+    "cloudwatch:DeleteAlarms",
+    "cloudwatch:DescribeAlarms",
+    "cloudwatch:ListTagsForResource",
+    "cloudwatch:PutMetricAlarm",
+    "cloudwatch:TagResource",
+    "cloudwatch:UntagResource",
+]
+ui_alarm_statements = [
+    statement for statement in execution_statements
+    if statement.get("Sid") == "ManageUiShadowAlarms"
+]
+if len(ui_alarm_statements) != 1:
+    failures.append("bootstrap template: exactly one ManageUiShadowAlarms statement is required")
+else:
+    statement = ui_alarm_statements[0]
+    if as_list(statement.get("Action")) != expected_ui_alarm_actions:
+        failures.append("bootstrap template: ManageUiShadowAlarms must use only the approved alarm actions")
+    if statement.get("Resource") != "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:opnform-ui-shadow-*":
+        failures.append("bootstrap template: ManageUiShadowAlarms resource scope changed")
+for statement in execution_statements:
+    if any(action in {"cloudwatch:TagResource", "cloudwatch:UntagResource"} for action in as_list(statement.get("Action"))):
+        if statement.get("Sid") != "ManageUiShadowAlarms":
+            failures.append("bootstrap template: CloudWatch tag actions must stay in ManageUiShadowAlarms")
 
 bref_external_account_id = "534081306603"
 bref_layer_version_arns = {

@@ -19,11 +19,17 @@ Resources:
       ThumbprintList:
         - 6938fd4d98bab03faadb97b34396831e3780aea1
         - cabd2a79a1076a31f21d253635cb039d4329a5e8
+      Tags:
+        - Key: Project
+          Value: OpnForm
 
   ServerlessArtifactBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Ref ServerlessArtifactBucketName
+      Tags:
+        - Key: Project
+          Value: OpnForm
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -49,6 +55,9 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Ref UiShadowArtifactBucketName
+      Tags:
+        - Key: Project
+          Value: OpnForm
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -70,6 +79,9 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: OpnFormCloudFormationExecutionRole
+      Tags:
+        - Key: Project
+          Value: OpnForm
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -122,13 +134,15 @@ Resources:
                 Effect: Allow
                 Action:
                   - lambda:CreateEventSourceMapping
-                  - lambda:TagResource
                 Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*'
               - Sid: ManageProductionEventSourceMappings
                 Effect: Allow
                 Action:
                   - lambda:DeleteEventSourceMapping
                   - lambda:GetEventSourceMapping
+                  - lambda:ListTags
+                  - lambda:TagResource
+                  - lambda:UntagResource
                   - lambda:UpdateEventSourceMapping
                 Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*'
               - Sid: ListProductionEventSourceMappings
@@ -155,6 +169,7 @@ Resources:
                 Action:
                   - events:DeleteRule
                   - events:DescribeRule
+                  - events:ListTagsForResource
                   - events:ListTargetsByRule
                   - events:PutRule
                   - events:PutTargets
@@ -170,6 +185,7 @@ Resources:
                 Effect: Allow
                 Action:
                   - logs:DeleteLogGroup
+                  - logs:ListTagsForResource
                   - logs:PutRetentionPolicy
                   - logs:TagResource
                   - logs:UntagResource
@@ -202,6 +218,7 @@ Resources:
                   - apigateway:POST
                   - apigateway:PUT
                   - apigateway:TagResource
+                  - apigateway:UntagResource
                 Resource: '*'
               - Sid: ReadUiShadowArtifacts
                 Effect: Allow
@@ -224,11 +241,15 @@ Resources:
                   - s3:GetBucketLocation
                   - s3:GetBucketPolicy
                   - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketTagging
+                  - s3:ListTagsForResource
                   - s3:PutEncryptionConfiguration
                   - s3:PutBucketOwnershipControls
                   - s3:PutBucketPolicy
                   - s3:PutBucketPublicAccessBlock
                   - s3:PutBucketTagging
+                  - s3:TagResource
+                  - s3:UntagResource
                 Resource: arn:aws:s3:::opnform-ui-shadow-*-assets
               - Sid: ManageUiShadowFunctions
                 Effect: Allow
@@ -254,6 +275,7 @@ Resources:
                 Action:
                   - logs:CreateLogGroup
                   - logs:DeleteLogGroup
+                  - logs:ListTagsForResource
                   - logs:PutRetentionPolicy
                   - logs:TagResource
                   - logs:UntagResource
@@ -311,13 +333,20 @@ Resources:
                 Effect: Allow
                 Action:
                   - cloudwatch:DeleteAlarms
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:ListTagsForResource
                   - cloudwatch:PutMetricAlarm
+                  - cloudwatch:TagResource
+                  - cloudwatch:UntagResource
                 Resource: !Sub 'arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:opnform-ui-shadow-*'
 
   OpnFormGitHubDeployRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: OpnFormGitHubDeployRole
+      Tags:
+        - Key: Project
+          Value: OpnForm
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:

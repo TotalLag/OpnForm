@@ -39,14 +39,26 @@ ALARM_ARN = "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:opnform-u
 EXECUTION_UI_STATEMENTS = {
     "ReadUiShadowArtifacts": (["s3:GetBucketLocation", "s3:ListBucket"], "UiShadowArtifactBucket.Arn"),
     "ReadUiShadowArtifactObjects": (["s3:GetObject", "s3:GetObjectVersion"], "${UiShadowArtifactBucket.Arn}/opnform-ui-shadow-*/*"),
-    "ManageUiShadowPublicBuckets": (["s3:CreateBucket", "s3:DeleteBucket", "s3:DeleteBucketPolicy", "s3:GetBucketLocation", "s3:GetBucketPolicy", "s3:GetBucketPublicAccessBlock", "s3:PutEncryptionConfiguration", "s3:PutBucketOwnershipControls", "s3:PutBucketPolicy", "s3:PutBucketPublicAccessBlock", "s3:PutBucketTagging"], "arn:aws:s3:::opnform-ui-shadow-*-assets"),
+    "ManageUiShadowPublicBuckets": (["s3:CreateBucket", "s3:DeleteBucket", "s3:DeleteBucketPolicy", "s3:GetBucketLocation", "s3:GetBucketPolicy", "s3:GetBucketPublicAccessBlock", "s3:GetBucketTagging", "s3:ListTagsForResource", "s3:PutEncryptionConfiguration", "s3:PutBucketOwnershipControls", "s3:PutBucketPolicy", "s3:PutBucketPublicAccessBlock", "s3:PutBucketTagging", "s3:TagResource", "s3:UntagResource"], "arn:aws:s3:::opnform-ui-shadow-*-assets"),
     "ManageUiShadowFunctions": (["lambda:AddPermission", "lambda:CreateFunction", "lambda:CreateFunctionUrlConfig", "lambda:DeleteFunction", "lambda:DeleteFunctionUrlConfig", "lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:GetFunctionUrlConfig", "lambda:GetPolicy", "lambda:RemovePermission", "lambda:TagResource", "lambda:UntagResource", "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:UpdateFunctionUrlConfig"], "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:opnform-ui-shadow-*"),
-    "ManageUiShadowLogs": (["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:TagResource", "logs:UntagResource"], "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/opnform-ui-shadow-*"),
+    "ManageUiShadowLogs": (["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:ListTagsForResource", "logs:PutRetentionPolicy", "logs:TagResource", "logs:UntagResource"], "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/opnform-ui-shadow-*"),
     "ManageUiShadowLambdaRole": (["iam:CreateRole", "iam:DeleteRole", "iam:DeleteRolePolicy", "iam:GetRole", "iam:PutRolePolicy", "iam:TagRole", "iam:UntagRole"], "arn:aws:iam::${AWS::AccountId}:role/opnform-ui-shadow-*-lambda-role"),
     "PassOnlyUiShadowLambdaRole": (["iam:PassRole"], "arn:aws:iam::${AWS::AccountId}:role/opnform-ui-shadow-*-lambda-role"),
     "ManageUiShadowCloudFront": (["cloudfront:CreateCachePolicy", "cloudfront:CreateDistribution", "cloudfront:CreateDistributionWithTags", "cloudfront:CreateFunction", "cloudfront:CreateOriginAccessControl", "cloudfront:CreateOriginRequestPolicy", "cloudfront:DeleteCachePolicy", "cloudfront:DeleteDistribution", "cloudfront:DeleteFunction", "cloudfront:DeleteOriginAccessControl", "cloudfront:DeleteOriginRequestPolicy", "cloudfront:DescribeFunction", "cloudfront:GetCachePolicy", "cloudfront:GetDistribution", "cloudfront:GetDistributionConfig", "cloudfront:GetFunction", "cloudfront:GetOriginAccessControl", "cloudfront:GetOriginRequestPolicy", "cloudfront:ListTagsForResource", "cloudfront:PublishFunction", "cloudfront:TagResource", "cloudfront:UntagResource", "cloudfront:UpdateCachePolicy", "cloudfront:UpdateDistribution", "cloudfront:UpdateFunction", "cloudfront:UpdateOriginAccessControl", "cloudfront:UpdateOriginRequestPolicy"], "*"),
-    "ManageUiShadowAlarms": (["cloudwatch:DeleteAlarms", "cloudwatch:PutMetricAlarm"], ALARM_ARN),
+    "ManageUiShadowAlarms": (["cloudwatch:DeleteAlarms", "cloudwatch:DescribeAlarms", "cloudwatch:ListTagsForResource", "cloudwatch:PutMetricAlarm", "cloudwatch:TagResource", "cloudwatch:UntagResource"], ALARM_ARN),
 }
+UI_RESOURCE_TAGS = {
+    "PublicAssetsBucket": {"Project": "OpnForm", "opnform:scope": "ui-shadow", "opnform:prefix": "ShadowPrefix"},
+    "NuxtLambdaLogGroup": {"Project": "OpnForm"},
+    "NuxtLambdaRole": {"Project": "OpnForm"},
+    "NuxtLambda": {"Project": "OpnForm", "opnform:scope": "ui-shadow", "opnform:prefix": "ShadowPrefix"},
+    "ViewerHostAndApiRewrite": {"Project": "OpnForm"},
+    "Distribution": {"Project": "OpnForm", "opnform:scope": "ui-shadow", "opnform:prefix": "ShadowPrefix"},
+    "LambdaErrorsAlarm": {"Project": "OpnForm"},
+    "LambdaThrottlesAlarm": {"Project": "OpnForm"},
+    "LambdaDurationAlarm": {"Project": "OpnForm"},
+}
+
 DEPLOY_UI_STATEMENTS = {
     "UploadUiShadowLambdaArtifacts": (["s3:AbortMultipartUpload", "s3:DeleteObject", "s3:GetObject", "s3:ListMultipartUploadParts", "s3:PutObject"], "${UiShadowArtifactBucket.Arn}/opnform-ui-shadow-*/*"),
     "ListUiShadowArtifactBucket": (["s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"], "UiShadowArtifactBucket.Arn"),
@@ -77,6 +89,47 @@ def parse_yaml(source: str, content: str, failures: list[str]) -> dict[str, Any]
     except Exception as error:
         failures.append(f"{source}: invalid YAML: {error}")
     return {}
+
+
+def require_exact_ui_resource_tags(resources: Any, failures: list[str]) -> None:
+    if not isinstance(resources, dict):
+        failures.append("template: Resources must be a mapping")
+        return
+
+    for resource_name, expected_tags in UI_RESOURCE_TAGS.items():
+        resource = resources.get(resource_name)
+        if not isinstance(resource, dict):
+            failures.append(f"template: missing taggable resource {resource_name}")
+            continue
+        if "Tags" in resource:
+            failures.append(f"template: {resource_name} Tags must be under Properties")
+        properties = resource.get("Properties")
+        if not isinstance(properties, dict):
+            failures.append(f"template: {resource_name} Properties must be a mapping")
+            continue
+        tags = properties.get("Tags")
+        if not isinstance(tags, list):
+            failures.append(f"template: {resource_name} Tags must be a list under Properties")
+            continue
+        tag_map: dict[Any, Any] = {}
+        for tag in tags:
+            if not isinstance(tag, dict) or set(tag) != {"Key", "Value"}:
+                failures.append(f"template: {resource_name} tags must contain only Key and Value")
+                continue
+            key = tag["Key"]
+            if key in tag_map:
+                failures.append(f"template: {resource_name} has duplicate tag {key!r}")
+            tag_map[key] = tag["Value"]
+        if tag_map != expected_tags:
+            failures.append(f"template: {resource_name} tags must be exactly {expected_tags}")
+
+    for resource_name, resource in resources.items():
+        if not isinstance(resource, dict):
+            continue
+        if "Tags" in resource:
+            failures.append(f"template: {resource_name} Tags must be under Properties")
+        if resource_name not in UI_RESOURCE_TAGS and isinstance(resource.get("Properties"), dict) and "Tags" in resource["Properties"]:
+            failures.append(f"template: unsupported resource {resource_name} must not define Tags")
 
 
 def role_statements(data: dict[str, Any], role_name: str) -> list[dict[str, Any]]:
@@ -143,6 +196,7 @@ def validate(sources: dict[str, str]) -> list[str]:
         forbid(source, r"\b[a-z0-9]{10}\.execute-api\.us-east-1\.amazonaws\.com\b")
 
     resources = template_data.get("Resources", {})
+    require_exact_ui_resource_tags(resources, failures)
     distribution = resources.get("Distribution", {}) if isinstance(resources, dict) else {}
     distribution_properties = distribution.get("Properties", {}) if isinstance(distribution, dict) else {}
     if not isinstance(distribution_properties, dict) or "Tags" not in distribution_properties or "Tags" in distribution:
@@ -254,6 +308,18 @@ def validate(sources: dict[str, str]) -> list[str]:
     if not isinstance(workflow_data, dict) or set(workflow_data.get("jobs", {})) != {"deploy", "shadow"}:
         failures.append("workflow: must retain API and add only the conditional shadow job")
     shadow_workflow = workflow[workflow.index("  shadow:"):] if "  shadow:" in workflow else ""
+    shadow_steps = workflow_data.get("jobs", {}).get("shadow", {}).get("steps", []) if isinstance(workflow_data, dict) else []
+    change_set_steps = [
+        step for step in shadow_steps
+        if isinstance(step, dict) and step.get("name") == "Create and execute the guarded branch UI change set"
+    ]
+    if len(change_set_steps) != 1:
+        failures.append("workflow: UI change-set step must occur exactly once")
+    else:
+        change_set_run = change_set_steps[0].get("run")
+        tag_arguments = re.findall(r"(?:^|\s)--tags\s+([^\s\\]+)", change_set_run if isinstance(change_set_run, str) else "")
+        if tag_arguments != ["Key=Project,Value=OpnForm"]:
+            failures.append("workflow: UI change set must use exactly --tags Key=Project,Value=OpnForm")
     revision_guard = '[[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]'
     artifact_derivation = 'artifact_key="${shadow}/${GITHUB_SHA}/lambda.zip"'
     artifact_output = "printf 'artifact_key=%s\\n' \"$artifact_key\" >> \"$GITHUB_OUTPUT\""
@@ -450,12 +516,18 @@ def self_test(sources: dict[str, str]) -> list[str]:
     cases = [
         ("bootstrap", "s3:PutEncryptionConfiguration", "s3:PutBucketEncryption"),
         ("bootstrap", "s3:PutEncryptionConfiguration", "s3:*"),
+        ("bootstrap", "s3:GetBucketTagging", "s3:GetBucketAcl"),
+        ("bootstrap", "Sid: ManageUiShadowLogs\n                Effect: Allow\n                Action:\n                  - logs:CreateLogGroup\n                  - logs:DeleteLogGroup\n                  - logs:ListTagsForResource", "Sid: ManageUiShadowLogs\n                Effect: Allow\n                Action:\n                  - logs:CreateLogGroup\n                  - logs:DeleteLogGroup\n                  - logs:ListTagsForLogGroup"),
+        ("bootstrap", "cloudwatch:ListTagsForResource", "cloudwatch:ListTagsForAlarm"),
         ("bootstrap", "cloudfront:ListTagsForResource\n", ""),
         ("bootstrap", "Resource: arn:aws:s3:::opnform-ui-shadow-*-assets", "Resource: arn:aws:s3:::opnform-ui-shadow-*"),
         ("bootstrap", "Sid: ReadUiShadowArtifacts\n                Effect: Allow\n                Action:\n                  - s3:GetBucketLocation\n                  - s3:ListBucket", "Sid: ReadUiShadowArtifacts\n                Effect: Allow\n                Action:\n                  - s3:GetBucketLocation\n                  - s3:ListBucket\n                  - ec2:RunInstances"),
         ("bootstrap", "Resource: !Sub 'arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:opnform-ui-shadow-*'", "Resource:\n                  - !Sub 'arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:opnform-ui-shadow-*'\n                  - !Sub 'arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:unrelated'"),
         ("bootstrap", "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:opnform-ui-shadow-*", "arn:aws:lambda:${AWS::Region}:*:function:opnform-ui-shadow-*"),
         ("bootstrap", "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:opnform-ui-shadow-*", "arn:aws:lambda:us-*-1:${AWS::AccountId}:function:opnform-ui-shadow-*"),
+        ("template", "Key: Project\n          Value: OpnForm", "Key: CostCenter\n          Value: OpnForm"),
+        ("template", "Key: Project\n          Value: OpnForm", "Key: Project\n          Value: Other"),
+        ("template", "    Type: AWS::CloudFront::OriginAccessControl\n    Properties:", "    Type: AWS::CloudFront::OriginAccessControl\n    Properties:\n      Tags:\n        - Key: Project\n          Value: OpnForm"),
         ("template", "Service: cloudfront.amazonaws.com", "Principal: '*'"),
         ("template", "AuthType: AWS_IAM", "AuthType: NONE"),
         ("template", "BucketOwnerEnforced", "WebsiteConfiguration"),
@@ -494,6 +566,8 @@ def self_test(sources: dict[str, str]) -> list[str]:
         ("smoke", "console.log('smoke_phase=archive_extracted')", "console.log('smoke_phase=archive_ready')"),
         ("smoke", "console.log('smoke_phase=handler_imported')", "console.log('smoke_phase=handler_ready')"),
         ("smoke", "console.log('smoke_phase=handler_responded')", "console.log('smoke_phase=response_ready')"),
+        ("workflow", "--tags Key=Project,Value=OpnForm \\\n", ""),
+        ("workflow", "--tags Key=Project,Value=OpnForm", "--tags Key=Project,Value=Other"),
         ("workflow", "NODE_OPTIONS='--max-old-space-size=8192' NUXT_PRIVATE_API_BASE=\"https://$AWS_API_ORIGIN_DOMAIN\" NUXT_PUBLIC_API_BASE=/api /usr/bin/time -v npm run smoke:aws-lambda 2> .aws-shadow/smoke-time.txt", "NODE_OPTIONS='--max-old-space-size=16384' NUXT_PRIVATE_API_BASE=\"https://$AWS_API_ORIGIN_DOMAIN\" NUXT_PUBLIC_API_BASE=/api /usr/bin/time -v npm run smoke:aws-lambda 2> .aws-shadow/smoke-time.txt"),
         ("workflow", "AWS_API_ORIGIN_DOMAIN: ${{ secrets.AWS_API_ORIGIN_DOMAIN }}", ""),
         ("workflow", "NUXT_PRIVATE_API_BASE=\"https://$AWS_API_ORIGIN_DOMAIN\" ", ""),

@@ -36,6 +36,8 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
       Tags:
+        - Key: Project
+          Value: OpnForm
         - Key: opnform:scope
           Value: ui-shadow
         - Key: opnform:prefix
@@ -46,11 +48,17 @@ Resources:
     Properties:
       LogGroupName: !Sub '/aws/lambda/${ShadowPrefix}-ssr'
       RetentionInDays: 14
+      Tags:
+        - Key: Project
+          Value: OpnForm
 
   NuxtLambdaRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub '${ShadowPrefix}-lambda-role'
+      Tags:
+        - Key: Project
+          Value: OpnForm
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -89,6 +97,8 @@ Resources:
           NUXT_PUBLIC_API_BASE: /api
           NUXT_PRIVATE_API_BASE: !Sub 'https://${ApiOriginDomain}'
       Tags:
+        - Key: Project
+          Value: OpnForm
         - Key: opnform:scope
           Value: ui-shadow
         - Key: opnform:prefix
@@ -180,6 +190,9 @@ Resources:
       FunctionConfig:
         Comment: Overwrite trusted viewer and forwarded hosts, then strip one API prefix.
         Runtime: cloudfront-js-2.0
+      Tags:
+        - Key: Project
+          Value: OpnForm
       FunctionCode: |
         function handler(event) {
           var request = event.request;
@@ -329,6 +342,8 @@ Resources:
             CachedMethods: [GET, HEAD]
             CachePolicyId: !Ref NoSharedCachePolicy
       Tags:
+        - Key: Project
+          Value: OpnForm
         - Key: opnform:scope
           Value: ui-shadow
         - Key: opnform:prefix
@@ -374,6 +389,9 @@ Resources:
     Properties:
       AlarmName: !Sub '${ShadowPrefix}-lambda-errors'
       AlarmDescription: Shadow SSR has one or more Lambda errors in five minutes.
+      Tags:
+        - Key: Project
+          Value: OpnForm
       Namespace: AWS/Lambda
       MetricName: Errors
       Statistic: Sum
@@ -391,6 +409,9 @@ Resources:
     Properties:
       AlarmName: !Sub '${ShadowPrefix}-lambda-throttles'
       AlarmDescription: Shadow SSR has one or more throttles in five minutes.
+      Tags:
+        - Key: Project
+          Value: OpnForm
       Namespace: AWS/Lambda
       MetricName: Throttles
       Statistic: Sum
@@ -408,6 +429,9 @@ Resources:
     Properties:
       AlarmName: !Sub '${ShadowPrefix}-lambda-duration'
       AlarmDescription: Shadow SSR p99 duration exceeds 20 seconds.
+      Tags:
+        - Key: Project
+          Value: OpnForm
       Namespace: AWS/Lambda
       MetricName: Duration
       ExtendedStatistic: p99
