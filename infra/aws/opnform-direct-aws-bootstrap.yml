@@ -18,6 +18,7 @@ Resources:
         - sts.amazonaws.com
       ThumbprintList:
         - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - cabd2a79a1076a31f21d253635cb039d4329a5e8
 
   ServerlessArtifactBucket:
     Type: AWS::S3::Bucket
@@ -327,7 +328,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: repo:TotalLag/OpnForm:environment:opnform-prod
+                token.actions.githubusercontent.com:sub: repo:TotalLag@1744428/OpnForm@1317796294:environment:opnform-prod
       Policies:
         - PolicyName: DeployOpnFormProductionStack
           PolicyDocument:
