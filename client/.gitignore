@@ -4,6 +4,9 @@
 .nuxt
 .nitro
 .cache
+.aws-shadow
+core
+core.*
 .amplify-hosting
 dist
 

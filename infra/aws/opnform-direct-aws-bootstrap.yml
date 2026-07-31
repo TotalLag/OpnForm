@@ -391,6 +391,10 @@ Resources:
                 Effect: Allow
                 Action: lambda:GetFunction
                 Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:opnform-prod-*'
+              - Sid: InvokeOnlyProductionArtisan
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:opnform-prod-artisan'
               - Sid: UploadUiShadowLambdaArtifacts
                 Effect: Allow
                 Action:

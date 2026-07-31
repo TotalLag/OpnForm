@@ -191,6 +191,9 @@ for needle in (
     '"us-east-1"',
     '"/opnform/prod/$name"',
     '"SecureString"',
+    'npx serverless bref:cli --stage prod --region us-east-1 --args="migrate:status --no-interaction"',
+    'npx serverless bref:cli --stage prod --region us-east-1 --args="migrate --force --no-interaction"',
+    'grep -F "Nothing to migrate." /tmp/opnform-migrate-verify.log',
     "npx serverless deploy --stage prod --region us-east-1",
 ):
     require(workflow, needle, "deployment workflow")
@@ -229,6 +232,9 @@ for needle in (
     "iam:PassedToService: cloudformation.amazonaws.com",
     "changeSet/opnform-prod-change-set/*",
     "cloudformation:DeleteChangeSet",
+    "InvokeOnlyProductionArtisan",
+    "lambda:InvokeFunction",
+    "function:opnform-prod-artisan",
     "sqs:CreateQueue",
     "logs:CreateLogGroup",
     "iam:CreateRole",
@@ -241,6 +247,27 @@ if not execution_statements:
     failures.append("bootstrap template: CloudFormation execution role policy statements are missing")
 if not deploy_statements:
     failures.append("bootstrap template: GitHub deploy role policy statements are missing")
+
+artisan_invoke_statements = [
+    statement for statement in deploy_statements
+    if statement.get("Sid") == "InvokeOnlyProductionArtisan"
+]
+expected_artisan_arn = "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:opnform-prod-artisan"
+if len(artisan_invoke_statements) != 1:
+    failures.append("bootstrap template: exactly one InvokeOnlyProductionArtisan statement is required")
+else:
+    artisan_invoke = artisan_invoke_statements[0]
+    if as_list(artisan_invoke.get("Action")) != ["lambda:InvokeFunction"]:
+        failures.append("bootstrap template: artisan invocation must grant only lambda:InvokeFunction")
+    if artisan_invoke.get("Resource") != expected_artisan_arn:
+        failures.append("bootstrap template: artisan invocation must target only opnform-prod-artisan")
+for statement in deploy_statements:
+    invoke_actions = [
+        action for action in as_list(statement.get("Action"))
+        if action == "lambda:InvokeFunction"
+    ]
+    if invoke_actions and statement.get("Sid") != "InvokeOnlyProductionArtisan":
+        failures.append("bootstrap template: lambda invocation must stay in InvokeOnlyProductionArtisan")
 
 event_source_mapping_resource = "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*"
 event_source_mapping_actions_expected = [
@@ -485,18 +512,26 @@ else:
         failures.append("bootstrap template: ReadProductionFunctionMetadata must allow only lambda:GetFunction")
     if statement.get("Resource") != function_metadata_arn:
         failures.append("bootstrap template: ReadProductionFunctionMetadata resource scope changed")
+allowed_deploy_lambda_statements = {
+    "ReadProductionFunctionMetadata": (["lambda:GetFunction"], function_metadata_arn),
+    "InvokeOnlyProductionArtisan": (["lambda:InvokeFunction"], expected_artisan_arn),
+}
 for statement in deploy_statements:
     lambda_actions = [
         action for action in as_list(statement.get("Action")) if isinstance(action, str) and action.startswith("lambda:")
     ]
     if not lambda_actions:
         continue
-    if statement.get("Sid") != "ReadProductionFunctionMetadata":
-        failures.append("bootstrap template: GitHub deploy role Lambda actions must stay in ReadProductionFunctionMetadata")
-    if lambda_actions != ["lambda:GetFunction"]:
-        failures.append("bootstrap template: GitHub deploy role may only grant lambda:GetFunction")
-    if statement.get("Resource") != function_metadata_arn:
-        failures.append("bootstrap template: GitHub deploy role Lambda resource must be scoped to opnform-prod functions")
+    sid = statement.get("Sid")
+    expected = allowed_deploy_lambda_statements.get(sid) if isinstance(sid, str) else None
+    if expected is None:
+        failures.append("bootstrap template: GitHub deploy role has an unapproved Lambda statement")
+        continue
+    expected_actions, expected_resource = expected
+    if lambda_actions != expected_actions:
+        failures.append(f"bootstrap template: {sid} Lambda actions changed")
+    if statement.get("Resource") != expected_resource:
+        failures.append(f"bootstrap template: {sid} Lambda resource scope changed")
 read_production_stack = re.search(
     r"(?ms)^[ \t]+- Sid: ReadProductionStack\n(.*?)(?=^[ \t]+- Sid:|\Z)", template
 )
