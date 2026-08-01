@@ -4,6 +4,8 @@ namespace App\Providers;
 
 use App\Models\Billing\Subscription;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Queue\Connectors\SqsConnector;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -24,6 +26,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+        Queue::extend('sqs', fn () => new SqsConnector());
+
         if (config('filesystems.default') === 'local') {
             Storage::disk('local')->buildTemporaryUrlsUsing(function ($path, $expiration, $options) {
                 return URL::temporarySignedRoute(
