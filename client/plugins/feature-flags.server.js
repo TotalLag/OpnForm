@@ -1,15 +1,24 @@
 import { contentApi } from '~/api/content'
 
+function isPlainObject(value) {
+  if (value === null || typeof value !== 'object') {
+    return false
+  }
+
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
 export default defineNuxtPlugin(async (nuxtApp) => {
   // Load feature flags during SSR using cached server route
   const featureFlagsState = useState('featureFlags', () => ({}))
   
   try {
-    const flags = await contentApi.featureFlags.list({ server: true })
-    featureFlagsState.value = flags
+    const flags = await $fetch('/api/feature-flags')
+    featureFlagsState.value = isPlainObject(flags) ? flags : {}
   } catch (error) {
     console.error('Failed to load feature flags on server:', error)
-    // Keep empty object as fallback
+    featureFlagsState.value = {}
   }
 
   // Provide simple refresh capability
