@@ -253,14 +253,14 @@ def validate(sources: dict[str, str]) -> list[str]:
     if any(no_shared.get(key) != "0" for key in ("DefaultTTL", "MaxTTL", "MinTTL")):
         failures.append("template: zero-cache policy TTLs changed")
     expected_no_shared_parameters = {
-        "EnableAcceptEncodingBrotli": "true",
-        "EnableAcceptEncodingGzip": "true",
+        "EnableAcceptEncodingBrotli": "false",
+        "EnableAcceptEncodingGzip": "false",
         "CookiesConfig": {"CookieBehavior": "none"},
         "HeadersConfig": {"HeaderBehavior": "none"},
         "QueryStringsConfig": {"QueryStringBehavior": "none"},
     }
     if no_shared.get("ParametersInCacheKeyAndForwardedToOrigin") != expected_no_shared_parameters:
-        failures.append("template: zero-cache policy must enable compressed encoding without shared caching")
+        failures.append("template: zero-cache policy must not vary its disabled cache key by compressed encoding")
     expected_origin_request_policy = {
         "Name": "${ShadowPrefix}-all-viewer-no-host",
         "CookiesConfig": {"CookieBehavior": "all"},
@@ -549,7 +549,7 @@ def self_test(sources: dict[str, str]) -> list[str]:
         ("template", "DefaultTTL: 0", "DefaultTTL: 3600"),
         ("template", "DefaultTTL: 31536000", "DefaultTTL: 0"),
         ("template", "MemorySize: 2048", "MemorySize: 4096"),
-        ("template", "EnableAcceptEncodingGzip: true", "EnableAcceptEncodingGzip: false"),
+        ("template", "EnableAcceptEncodingGzip: false", "EnableAcceptEncodingGzip: true"),
         ("template", "DefaultCacheBehavior:\n          TargetOriginId: nuxt-ssr\n          ViewerProtocolPolicy: redirect-to-https\n          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]\n          CachedMethods: [GET, HEAD]\n          Compress: true", "DefaultCacheBehavior:\n          TargetOriginId: nuxt-ssr\n          ViewerProtocolPolicy: redirect-to-https\n          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]\n          CachedMethods: [GET, HEAD]\n          Compress: false"),
         ("template", "PathPattern: /llms.txt\n            TargetOriginId: private-public-assets\n            ViewerProtocolPolicy: redirect-to-https\n            AllowedMethods: [GET, HEAD, OPTIONS]\n            CachedMethods: [GET, HEAD]\n            Compress: true", "PathPattern: /llms.txt\n            TargetOriginId: private-public-assets\n            ViewerProtocolPolicy: redirect-to-https\n            AllowedMethods: [GET, HEAD, OPTIONS]\n            CachedMethods: [GET, HEAD]\n            Compress: false"),
         ("template", "HeaderBehavior: allExcept", "HeaderBehavior: allViewerExceptHostHeader"),
