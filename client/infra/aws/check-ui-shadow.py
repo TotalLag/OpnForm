@@ -230,7 +230,16 @@ def validate(sources: dict[str, str]) -> list[str]:
         failures.append("template: icon SSR route must precede broad API route")
 
     config = distribution_properties.get("DistributionConfig", {}) if isinstance(distribution_properties, dict) else {}
+    default_cache_behavior = config.get("DefaultCacheBehavior", {}) if isinstance(config, dict) else {}
     cache_behaviors = config.get("CacheBehaviors", []) if isinstance(config, dict) else []
+    if not isinstance(default_cache_behavior, dict) or default_cache_behavior.get("Compress") != "true":
+        failures.append("template: default cache behavior must enable compression")
+    if not isinstance(cache_behaviors, list):
+        failures.append("template: cache behaviors must be a list")
+        cache_behaviors = []
+    for behavior in cache_behaviors:
+        if not isinstance(behavior, dict) or behavior.get("Compress") != "true":
+            failures.append("template: every cache behavior must enable compression")
     behavior_by_path = {behavior.get("PathPattern"): behavior for behavior in cache_behaviors if isinstance(behavior, dict)}
     expected_routes = {"/api/_nuxt_icon/*": "nuxt-ssr", "/api/*": "laravel-api", "/open/*": "laravel-api", "/local/temp/*": "laravel-api", "/_nuxt/*": "private-public-assets"}
     for path, origin in expected_routes.items():
@@ -244,14 +253,14 @@ def validate(sources: dict[str, str]) -> list[str]:
     if any(no_shared.get(key) != "0" for key in ("DefaultTTL", "MaxTTL", "MinTTL")):
         failures.append("template: zero-cache policy TTLs changed")
     expected_no_shared_parameters = {
-        "EnableAcceptEncodingBrotli": "false",
-        "EnableAcceptEncodingGzip": "false",
+        "EnableAcceptEncodingBrotli": "true",
+        "EnableAcceptEncodingGzip": "true",
         "CookiesConfig": {"CookieBehavior": "none"},
         "HeadersConfig": {"HeaderBehavior": "none"},
         "QueryStringsConfig": {"QueryStringBehavior": "none"},
     }
     if no_shared.get("ParametersInCacheKeyAndForwardedToOrigin") != expected_no_shared_parameters:
-        failures.append("template: zero-cache policy must disable compressed encoding and cache keys")
+        failures.append("template: zero-cache policy must enable compressed encoding without shared caching")
     expected_origin_request_policy = {
         "Name": "${ShadowPrefix}-all-viewer-no-host",
         "CookiesConfig": {"CookieBehavior": "all"},
@@ -540,7 +549,9 @@ def self_test(sources: dict[str, str]) -> list[str]:
         ("template", "DefaultTTL: 0", "DefaultTTL: 3600"),
         ("template", "DefaultTTL: 31536000", "DefaultTTL: 0"),
         ("template", "MemorySize: 2048", "MemorySize: 4096"),
-        ("template", "EnableAcceptEncodingGzip: false", "EnableAcceptEncodingGzip: true"),
+        ("template", "EnableAcceptEncodingGzip: true", "EnableAcceptEncodingGzip: false"),
+        ("template", "DefaultCacheBehavior:\n          TargetOriginId: nuxt-ssr\n          ViewerProtocolPolicy: redirect-to-https\n          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]\n          CachedMethods: [GET, HEAD]\n          Compress: true", "DefaultCacheBehavior:\n          TargetOriginId: nuxt-ssr\n          ViewerProtocolPolicy: redirect-to-https\n          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]\n          CachedMethods: [GET, HEAD]\n          Compress: false"),
+        ("template", "PathPattern: /llms.txt\n            TargetOriginId: private-public-assets\n            ViewerProtocolPolicy: redirect-to-https\n            AllowedMethods: [GET, HEAD, OPTIONS]\n            CachedMethods: [GET, HEAD]\n            Compress: true", "PathPattern: /llms.txt\n            TargetOriginId: private-public-assets\n            ViewerProtocolPolicy: redirect-to-https\n            AllowedMethods: [GET, HEAD, OPTIONS]\n            CachedMethods: [GET, HEAD]\n            Compress: false"),
         ("template", "HeaderBehavior: allExcept", "HeaderBehavior: allViewerExceptHostHeader"),
         ("template", "            - host", "            - authorization"),
         ("template", "${ShadowPrefix}-viewer-rewrite", "${ShadowPrefix}-viewer-host-and-api-rewrite"),
