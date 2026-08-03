@@ -141,8 +141,8 @@ Resources:
         MaxTTL: 0
         MinTTL: 0
         ParametersInCacheKeyAndForwardedToOrigin:
-          EnableAcceptEncodingBrotli: false
-          EnableAcceptEncodingGzip: false
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
           CookiesConfig:
             CookieBehavior: none
           HeadersConfig:
@@ -240,6 +240,7 @@ Resources:
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
           CachedMethods: [GET, HEAD]
+          Compress: true
           CachePolicyId: !Ref NoSharedCachePolicy
           OriginRequestPolicyId: !Ref AllViewerOriginRequestPolicy
           FunctionAssociations:
@@ -252,6 +253,7 @@ Resources:
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
             OriginRequestPolicyId: !Ref AllViewerOriginRequestPolicy
             FunctionAssociations:
@@ -262,6 +264,7 @@ Resources:
             ViewerProtocolPolicy: https-only
             AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
             OriginRequestPolicyId: !Ref AllViewerOriginRequestPolicy
             FunctionAssociations:
@@ -272,6 +275,7 @@ Resources:
             ViewerProtocolPolicy: https-only
             AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
             OriginRequestPolicyId: !Ref AllViewerOriginRequestPolicy
             FunctionAssociations:
@@ -282,6 +286,7 @@ Resources:
             ViewerProtocolPolicy: https-only
             AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
             OriginRequestPolicyId: !Ref AllViewerOriginRequestPolicy
             FunctionAssociations:
@@ -292,54 +297,63 @@ Resources:
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods: [GET, HEAD, OPTIONS]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref ImmutableNuxtAssetCachePolicy
           - PathPattern: /icons/*
             TargetOriginId: private-public-assets
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods: [GET, HEAD, OPTIONS]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
           - PathPattern: /fonts/*
             TargetOriginId: private-public-assets
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods: [GET, HEAD, OPTIONS]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
           - PathPattern: /widgets/*
             TargetOriginId: private-public-assets
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods: [GET, HEAD, OPTIONS]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
           - PathPattern: /video/*
             TargetOriginId: private-public-assets
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods: [GET, HEAD, OPTIONS]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
           - PathPattern: /img/*
             TargetOriginId: private-public-assets
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods: [GET, HEAD, OPTIONS]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
           - PathPattern: /favicon.ico
             TargetOriginId: private-public-assets
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods: [GET, HEAD, OPTIONS]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
           - PathPattern: /robots.txt
             TargetOriginId: private-public-assets
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods: [GET, HEAD, OPTIONS]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
           - PathPattern: /llms.txt
             TargetOriginId: private-public-assets
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods: [GET, HEAD, OPTIONS]
             CachedMethods: [GET, HEAD]
+            Compress: true
             CachePolicyId: !Ref NoSharedCachePolicy
       Tags:
         - Key: Project
