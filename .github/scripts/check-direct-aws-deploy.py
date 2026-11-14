@@ -186,6 +186,22 @@ for needle in (
 forbid(serverless, r"/laravel/", "serverless configuration")
 if isinstance(serverless_data, dict):
     provider = serverless_data.get("provider", {})
+    expected_statements = [
+        {
+            "Effect": "Allow",
+            "Action": "ssm:GetParameters",
+            "Resource": "arn:aws:ssm:${aws:region}:${aws:accountId}:parameter/opnform/prod/*",
+        },
+        {
+            "Effect": "Allow",
+            "Action": "ses:SendRawEmail",
+            "Resource": "arn:aws:ses:${aws:region}:${aws:accountId}:identity/*",
+        },
+    ]
+    if provider.get("iam", {}).get("role", {}).get("statements") != expected_statements:
+        failures.append("serverless configuration: role statements must be exactly the SSM and SES permissions in order")
+    if provider.get("environment", {}).get("MAIL_MAILER") != "ses":
+        failures.append("serverless configuration: MAIL_MAILER must be ses")
     if provider.get("stackName") != "opnform-prod":
         failures.append("serverless configuration: stackName must be opnform-prod")
     if serverless_data.get("params", {}).get("default", {}).get("ssmPrefix") != "/opnform/prod":
@@ -194,6 +210,12 @@ if isinstance(serverless_data, dict):
         if provider.get(field) != {"Project": "OpnForm"}:
             failures.append(f"serverless configuration: provider.{field} must be exactly Project=OpnForm")
 forbid(serverless, r"\bus-(?!east-1\b)[a-z]+-\d+\b", "serverless configuration")
+
+forbid(serverless, r"identity/(?!\*)", "serverless configuration")
+forbid(serverless, r"^\s*MAIL_(HOST|PORT|USERNAME|PASSWORD|ENCRYPTION)\s*:", "serverless configuration")
+services = text("api/config/services.php")
+if not re.search(r"'ses' => \[[^\]]*'token' => env\('AWS_SESSION_TOKEN'\)", services):
+    failures.append("api/config/services.php: ses credentials must include the AWS_SESSION_TOKEN token")
 
 if package.get("devDependencies", {}).get("serverless") != "3.40.0":
     failures.append("api/package.json: serverless must be the exact 3.40.0 dev dependency")

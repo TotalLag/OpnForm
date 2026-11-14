@@ -27,6 +27,9 @@ provider:
         - Effect: Allow
           Action: ssm:GetParameters
           Resource: arn:aws:ssm:${aws:region}:${aws:accountId}:parameter/opnform/prod/*
+        - Effect: Allow
+          Action: ses:SendRawEmail
+          Resource: arn:aws:ses:${aws:region}:${aws:accountId}:identity/*
 
   environment:
     # Non-sensitive deploy-time SSM parameters
@@ -42,6 +45,7 @@ provider:
     LOCAL_FILESYSTEM_VISIBILITY: 'public'
     LOG_CHANNEL: 'errorlog'
     LOG_LEVEL: 'debug'
+    MAIL_MAILER: 'ses'
     PHP_MAX_EXECUTION_TIME: '600'
     PHP_MEMORY_LIMIT: '1G'
     PHP_POST_MAX_SIZE: '64M'
