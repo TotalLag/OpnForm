@@ -302,7 +302,7 @@ jobs:
       - run: echo "PHP 8.3 mysql tests passed in the tests matrix."
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [client_checks, tests]
     timeout-minutes: 45
 
